@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark; /* native controls + scrollbars follow the OS */
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #0f172a; /* slate-900, avoids white flash on overscroll */
+  }
+}
+
+/* Chart tokens (categorical slots 1-3 of the dataviz reference palette). */
+.viz-root {
+  --surface: #ffffff;
+  --grid: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-secondary: #475569;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  .viz-root {
+    --surface: #1e293b;
+    --grid: #334155;
+    --text-muted: #94a3b8;
+    --text-secondary: #cbd5e1;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+  }
+}
