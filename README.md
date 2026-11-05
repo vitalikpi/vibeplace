@@ -1,7 +1,9 @@
 # Job Tracker
 
-A desktop kanban for a job search. Postings come in through your own bookmarklets or
-through Claude Code over MCP, and move through Incoming → Review → Applied → Rejected.
+A desktop app for a job search, laid out like a mail client. Postings come in through
+your own bookmarklets or through Claude Code over MCP. You triage them, Claude-in-Chrome
+agents prefill the application forms and hand them back to you, you submit, and Gmail
+evidence records the outcome. The full workflow is in [`job-flow.md`](job-flow.md).
 
 ## Running the desktop app
 
@@ -10,30 +12,55 @@ npm install              # also rebuilds native modules for Electron
 npm run electron:dev     # Vite on :5173 with hot reload + Electron
 npm run electron:start   # build the UI, run the app
 npm run dist             # build release/Job Tracker-<version>-arm64.dmg (unsigned)
-npm test                 # unit tests (Vitest); npm run test:watch to rerun on change
+npm test                 # unit + UI tests (Vitest); npm run test:watch to rerun on change
 ```
 
-Tests live in `test/` and run in plain Node. They use in-memory SQLite, temporary data
-folders, a fixed time zone (`America/New_York`) and a mocked `electron` module, so they
-never touch your data or open a port.
+Tests live in `test/` (UI tests in `test/ui/`, on jsdom). They use in-memory SQLite,
+temporary data folders, a fixed time zone (`America/New_York`) and a mocked `electron`
+module, so they never touch your data or open a port.
 
 ### How it's wired
 
 ```
-window (React UI) ──IPC: window.tracker──► main process: db.js (SQLite)
-                                               ▲
-bookmarklets ──► http://127.0.0.1:7085 ────────┤  /capture, /capture-batch, POST /api/jobs
+window (React UI) ──IPC: window.tracker──► main process: db.js (SQLite) ──► dock badge,
+                                               ▲      │                      notifications
+bookmarklets ──► http://127.0.0.1:7085 ────────┤      └── change push ──► window
 Claude Code  ──► http://127.0.0.1:7085/mcp ────┘
 ```
 
 - **UI:** loaded from `dist/` on disk (from Vite on :5173 in dev). It reads and edits
   data only through the preload bridge (`electron/preload.cjs` → `electron/ipc.js`), so
-  none of the board's data is readable over the network.
+  none of the tracker's data is readable over the network.
+- **Live:** every write (UI, MCP, bookmarklet) goes through the main process, which pushes
+  a change to the window, keeps the dock badge at the "Waiting for me" count, and shows a
+  notification when an agent hands a job back.
 - **HTTP server:** on `127.0.0.1:7085` ("J0B5"; set `PORT` to override). It has only the
-  ingestion routes and MCP. `POST /api/jobs` is the one cross-origin endpoint: it only
-  inserts and answers `{id, duplicateCompany}`. Every request must carry
-  `Host: 127.0.0.1:<port>` or `localhost:<port>`, which blocks DNS rebinding.
-- **Lifecycle:** on macOS, closing the window leaves the server running. Cmd+Q stops it.
+  ingestion routes and MCP. Every request must carry `Host: 127.0.0.1:<port>` or
+  `localhost:<port>`, which blocks DNS rebinding.
+- **Lifecycle:** on macOS, closing the window leaves the server running. Cmd+Q stops it
+  once in-flight requests finish.
+
+## Workflow
+
+| Folder | Statuses | Who moves jobs here |
+|---|---|---|
+| ⏰ Waiting for me | `blocked`, `ready` | an agent hands the job back |
+| 📥 New | `new` | bookmarklet, MCP `add_job` |
+| ✓ Triaged | `triaged` | you or a triage agent |
+| ▶ In progress | `in_progress` | you (**Start** or **Unblock**); an agent then holds it |
+| ⏸ On hold | `on_hold` | you or an agent |
+| 📤 Applied | `applied` | you, the ✅ Submitted bookmarklet, or Gmail |
+| 💬 Interviewing | `interviewing` | you or Gmail |
+| ✗ Rejected | `rejected` | you or Gmail |
+| 🗑 Trash | `trash` | you, or a triage agent (NO-GO) |
+
+The rules live in `electron/workflow.js`. The UI only offers the moves you may make, and
+**Move to…** in the reading pane overrides them; the override is recorded on the
+timeline. Every move and every agent note is an event in `job_events`. Your own notes
+stay in the job's **notes** field, which agents never write.
+
+Shortcuts: `j`/`k` move, `Enter` opens, `x` selects, `e` trashes, `s` starts, `h` holds,
+`/` searches, `Esc` closes. With a selection they apply to the whole selection.
 
 ## Data folder
 
@@ -45,10 +72,16 @@ folder layout:
 ```
 <data folder>/
   jobs.db              # SQLite (WAL mode), created on first run
+  jobs.backup-v1-*.db  # made once if an old (v1) jobs.db was migrated
   resume.txt           # returned by the get_resume MCP tool
-  bookmarklets/        # your own *.js bookmarklets (the app ships none)
+  bookmarklets/        # your own *.js bookmarklets (the app ships only ✅ Unblocked)
   settings.json        # optional, see below
 ```
+
+**Migration from v1:** opening a v1 `jobs.db` (statuses `incoming` / `review` / …)
+copies it to `jobs.backup-v1-<date>.db` first, then renames `incoming` → `new` and
+`review` → `triaged`. It rebuilds the history as events from the stored timestamps and
+moves every existing note into an event.
 
 `settings.json`:
 
@@ -58,26 +91,44 @@ folder layout:
   "links": [
     { "label": "LinkedIn", "value": "https://www.linkedin.com/in/you/" },
     { "label": "GitHub", "value": "https://github.com/you" }
-  ]
+  ],
+  "tracks": ["remote", { "key": "nyc", "label": "NYC" }]
 }
 ```
 
-`email` is the default login for `create_account`. `links` fill the **Me** panel; the
-button is hidden when there are none. The file is re-read on every request, so edits
-apply without a restart.
+- **`email`:** the default login for `create_account`.
+- **`links`:** copy buttons at the bottom of the sidebar.
+- **`tracks`:** your target locations. They label jobs and filter the list. New jobs get
+  the first one, and agents may only set configured keys.
+
+The file is re-read on every request, so edits apply without a restart.
 
 ## Bookmarklets
 
-Bookmarklets are user-defined, like Claude Code skills, and the app ships none. Every
-`.js` file in `bookmarklets/` shows up in the **＋ Bookmarklet** panel as a draggable
-button labeled after its file name. A file can be readable JS, which the app URL-encodes,
+The app ships one bookmarklet, **✅ Unblocked**, because it's part of the workflow rather
+than tied to a site. When an agent hands an application tab back as blocked, do what it
+needed, then press it on that tab. It finds the job by `#<id>` in the tab title (else by
+the page URL), asks for an optional short answer, and sends the job back to the agent
+through `/act`.
+
+Everything else is user-defined, like Claude Code skills. Every `.js` file in
+`bookmarklets/` shows up on the **Bookmarklets** page as a draggable button labeled after
+its file name. A file can be readable JS, which the app URL-encodes,
 or an already-built `javascript:` URL. Any `127.0.0.1:<port>` / `localhost:<port>` in
 it is rewritten to the app's port.
 
-To save a posting, a bookmarklet opens `http://127.0.0.1:7085/capture#<url-encoded JSON>`
-with `{url, company, title, body, location, source}`, or `/capture-batch#<JSON array>`
-for several. These pages are served by the app itself, so they work on sites whose
-Content-Security-Policy blocks requests to localhost.
+The pages a bookmarklet can open are served by the app itself, so they work on sites
+whose Content-Security-Policy blocks requests to localhost:
+
+| Open | Hash (URL-encoded JSON) | Effect |
+|---|---|---|
+| `/capture#…` | `{url, title?, company?, description?, location?, source?}` | a `new` job |
+| `/capture-batch#…` | an array of the above | several jobs |
+| `/act#…` | `{op: "unblock" \| "submitted", job_id?, url?, title?, answers?}` | Unblock or mark applied |
+
+`/act` finds the job by `job_id`, then by `#<id>` in `title` (agents prefix the tab title
+with it), then by the page `url` against each job's application URL, then its posting
+URL. When nothing matches, or several jobs do, the page stays open and says so.
 
 ## Claude Code (MCP)
 
@@ -87,10 +138,17 @@ While the app runs, point Claude Code at it in `.mcp.json`:
 { "mcpServers": { "jobtracker": { "type": "http", "url": "http://127.0.0.1:7085/mcp" } } }
 ```
 
-Tools: `list_jobs`, `get_job`, `update_job`, `stats`, `get_resume`, `add_job`,
-`get_account`, `create_account`. `/mcp` rejects any request that carries an `Origin`
-header, and any request whose `Host` isn't `127.0.0.1:<port>` or `localhost:<port>`, so
-web pages can't reach it.
+| Group | Tools |
+|---|---|
+| read | `list_jobs`, `get_job` (with timeline), `attention`, `stats`, `get_resume` |
+| capture / triage | `add_job`, `triage_job(go \| no_go, reason, track?)` |
+| apply loop | `queue_next` (leases the job), `update_progress`, `mark_blocked(needs)`, `mark_ready`, `hold_job`, `release_job`, `add_event` |
+| outcomes | `record_outcome(applied \| interviewing \| rejected, evidence)` (actor `gmail`) |
+| accounts | `get_account`, `create_account` |
+
+There's no tool to Start, Unblock or mark a job applied as an agent; those are yours.
+A refused move comes back as a tool error that lists the allowed moves. `/mcp` rejects
+any request that carries an `Origin` header, so web pages can't reach it.
 
 ## Headless server
 
@@ -100,5 +158,5 @@ To run the capture endpoints and MCP without a window (for tests):
 TRACKER_DATA_ROOT=/path/to/folder PORT=8799 ELECTRON_RUN_AS_NODE=1 npx electron electron/serve.js
 ```
 
-`better-sqlite3` is built for Electron, so run any script that opens the database with
-`ELECTRON_RUN_AS_NODE=1 npx electron <script>`, not plain `node`.
+To run a second, windowed instance next to your real one (its own settings folder and
+single-instance lock), add `TRACKER_USER_DATA=/some/empty/folder`.

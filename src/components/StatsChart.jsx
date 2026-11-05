@@ -3,7 +3,7 @@ import { getDailyStats } from "../api.js";
 
 // Fixed categorical order (slots 1-3); colors live in index.css as --series-*.
 const SERIES = [
-  { key: "incoming", label: "Incoming", color: "var(--series-1)" },
+  { key: "captured", label: "Captured", color: "var(--series-1)" },
   { key: "applied", label: "Applied", color: "var(--series-2)" },
   { key: "rejected", label: "Rejected", color: "var(--series-3)" },
 ];
@@ -51,7 +51,7 @@ export default function StatsChart() {
   }, [data]);
 
   const totals = useMemo(() => {
-    const t = { incoming: 0, applied: 0, rejected: 0 };
+    const t = { captured: 0, applied: 0, rejected: 0 };
     for (const d of data) for (const s of SERIES) t[s.key] += d[s.key];
     const active = data.filter((d) => d.applied > 0).length;
     return { ...t, active, perActive: active ? t.applied / active : 0 };
@@ -110,7 +110,7 @@ export default function StatsChart() {
         <div className="flex gap-4 text-xs text-slate-500 dark:text-slate-400">
           <span>
             Apply rate <span className="font-semibold text-slate-700 dark:text-slate-200">
-              {totals.incoming ? Math.round((100 * totals.applied) / totals.incoming) : 0}%
+              {totals.captured ? Math.round((100 * totals.applied) / totals.captured) : 0}%
             </span>
           </span>
           <span>
@@ -159,7 +159,7 @@ export default function StatsChart() {
             onMouseMove={onMove}
             onMouseLeave={() => setHover(null)}
             role="img"
-            aria-label="Daily incoming, applied and rejected jobs"
+            aria-label="Daily captured, applied and rejected jobs"
           >
             {ticks.map((t) => (
               <g key={t}>

@@ -14,9 +14,10 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    const d = await r.json();
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status + ' ' + r.statusText);
     m.textContent = (d.duplicateCompany ? '\u26A0 Already applied \u2014 ' : '\u2713 Saved \u2014 ')
-      + (payload.company || 'job') + ' \u2192 Incoming';
+      + (payload.company || 'job') + ' \u2192 New';
     if (!d.duplicateCompany) setTimeout(() => window.close(), 800);
   } catch (e) {
     m.style.color = '#b42318';

@@ -1,12 +1,15 @@
-// MCP server for the job tracker — lets Claude read and triage
-// jobs in jobs.db over Streamable HTTP at http://127.0.0.1:7085/mcp. It shares db.js
-// with the UI's API, so edits show up in the UI on next refresh. Only reachable while
-// the app is running.
+// MCP server for the job tracker, over Streamable HTTP at http://127.0.0.1:7085/mcp.
+// It shares db.js with the UI, so every change shows up in the app immediately.
+// Only reachable while the app is running.
 //
-// Typical triage flow: list_jobs(status="incoming", include_body=True), then per job
-//   GO    -> update_job(id, status="review", track=<geo>)
-//   NO-GO -> update_job(id, status="trash", notes="NO-GO: <reason>")
-// (duplicateCompany == true usually means NO-GO: already applied to that company.)
+// Tools follow the workflow (workflow.js); status changes go through db.transition,
+// so a move the caller may not make comes back as a tool error naming the allowed
+// moves. Agents never Start, Unblock or mark a job applied: those are the human's.
+//
+//   triage:    list_jobs(status="new", include_body=True) → triage_job(go | no_go)
+//   apply:     queue_next → update_progress … → mark_blocked(needs) | mark_ready | hold_job
+//              (release_job on an error stop)
+//   outcomes:  record_outcome (Gmail evidence); add_event for anything else
 import fs from "node:fs";
 import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -14,7 +17,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 
 import * as db from "./db.js";
-import { PORT, getPaths, readSettings } from "./config.js";
+import { defaultTrack, getPaths, isValidTrack, readSettings } from "./config.js";
+import { STATUSES } from "./workflow.js";
 
 const BODY_PREVIEW = 4000;
 
@@ -30,147 +34,249 @@ function preview(job, includeBody) {
   return job;
 }
 
-// Results keep the shape of the original (Python FastMCP) server, which existing
-// skills rely on: a JSON text block per value (one per
-// item for lists, none for null) and, for tools whose return type FastMCP wraps
-// (list / optional / str), structuredContent {result}.
-const json = (v) => ({ type: "text", text: JSON.stringify(v, null, 2) });
-const textOf = (v) => (typeof v === "string" ? { type: "text", text: v } : json(v));
-const plain = (v) => ({ content: [json(v)] });
-function wrapped(v) {
-  const content = v === null ? [] : Array.isArray(v) ? v.map(json) : [textOf(v)];
-  return { content, structuredContent: { result: v } };
+// Every result: one JSON text block (none for null) plus structuredContent {result}.
+function ok(v) {
+  return {
+    content: v == null ? [] : [{ type: "text", text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }],
+    structuredContent: { result: v ?? null },
+  };
 }
+const fail = (message) => ({ content: [{ type: "text", text: message }], isError: true });
+
+// Run fn; TransitionErrors (refused moves, unknown jobs, someone else's lease) become
+// tool errors instead of protocol errors.
+async function guarded(fn) {
+  try {
+    return ok(await fn());
+  } catch (e) {
+    if (e instanceof db.TransitionError) return fail(e.message);
+    throw e;
+  }
+}
+
 const RESULT = { result: z.any() };
-const optStr = z.string().nullable().optional();
+const agentName = z.string().min(1).describe("Your agent name, e.g. 'apply-3'. Recorded as actor 'agent:<name>'.");
+const actorOf = (name) => `agent:${name}`;
+const jobId = z.number().int();
+const optStr = z.string().optional();
+const need = z.object({
+  type: z.enum(db.NEED_TYPES),
+  text: z.string().describe("What the human has to do, shown in the app"),
+  q: z.string().optional().describe("For type 'question': the question to answer"),
+  answers_ref: z.number().int().optional().describe("Reference into ANSWERS.md, if any"),
+});
+
+function mustExist(id) {
+  if (!db.getJob(id)) throw new db.TransitionError(`job ${id} not found`, { code: "not_found" });
+}
 
 function buildServer() {
-  const mcp = new McpServer({ name: "jobtracker", version: "1.0.0" });
+  const mcp = new McpServer({ name: "jobtracker", version: "2.0.0" });
+  const tool = (name, description, inputSchema, handler) =>
+    mcp.registerTool(name, { description, inputSchema, outputSchema: RESULT }, (args) => guarded(() => handler(args)));
 
-  mcp.registerTool(
+  // --- reading -----------------------------------------------------------------
+
+  tool(
     "list_jobs",
+    `List jobs, newest activity first. Filter by status (${STATUSES.join("/")}), track, or a
+free-text query over company/title/description. Bodies are omitted unless include_body
+(then truncated to ${BODY_PREVIEW} chars). duplicateCompany=true means another job at the
+same company is already triaged or further along.`,
     {
-      description:
-        "List jobs, optionally filtered by status (incoming/review/applied/rejected/trash),\n" +
-        "    track (remote/nyc/boston/sf), or a free-text query over company/title/body. Bodies are\n" +
-        "    omitted unless include_body=True (then truncated). Use for triage: list_jobs(\n" +
-        '    status="incoming", include_body=True).',
-      inputSchema: {
-        status: optStr,
-        track: optStr,
-        q: optStr,
-        include_body: z.boolean().default(false),
-        limit: z.number().int().default(200),
-      },
-      outputSchema: RESULT,
+      status: z.enum(STATUSES).optional(),
+      track: optStr,
+      q: optStr,
+      include_body: z.boolean().default(false),
+      limit: z.number().int().default(200),
     },
-    async ({ status, track, q, include_body, limit }) => {
-      const jobs = db.listJobs({ status: status || null, track: track || null, q: q || null });
-      return wrapped(jobs.slice(0, Math.max(1, limit)).map((j) => preview(j, include_body)));
-    }
+    ({ status, track, q, include_body, limit }) =>
+      db
+        .listJobs({ status: status || null, track: track || null, q: q || null })
+        .slice(0, Math.max(1, limit))
+        .map((j) => preview(j, include_body))
   );
 
-  mcp.registerTool(
+  tool(
     "get_job",
-    {
-      description: "Return one job's full record including the complete body text, or null if missing.",
-      inputSchema: { job_id: z.number().int() },
-      outputSchema: RESULT,
-    },
-    async ({ job_id }) => wrapped(db.getJob(job_id))
+    "One job's full record (complete description, needs, apply_url, step, tab_id, owner) plus its event timeline, or null.",
+    { job_id: jobId },
+    ({ job_id }) => db.getJobDetail(job_id)
   );
 
-  mcp.registerTool(
-    "update_job",
-    {
-      description:
-        "Update a job's status, track, and/or notes (the single write used for triage).\n" +
-        "    status in incoming/review/applied/rejected/trash; track in remote/nyc/boston/sf.\n" +
-        "    Returns the updated job, or an error string if nothing valid was provided.",
-      inputSchema: { job_id: z.number().int(), status: optStr, track: optStr, notes: optStr },
-      outputSchema: RESULT,
-    },
-    async ({ job_id, status, track, notes }) => {
-      const fields = {};
-      if (status != null) fields.status = status;
-      if (track != null) fields.track = track;
-      if (notes != null) fields.notes = notes;
-      const updated = db.updateJob(job_id, fields);
-      return wrapped(updated ?? "error: no valid fields (bad status/track?) or job not found");
-    }
+  tool(
+    "attention",
+    "Jobs waiting for the human (blocked or ready), longest-waiting first, with needs, tab_id and apply_url.",
+    {},
+    () => db.attention()
   );
 
-  mcp.registerTool(
-    "stats",
-    { description: "Return the count of jobs in each status.", inputSchema: {} },
-    async () => plain(db.stats())
-  );
+  tool("stats", "Job counts per status, plus today's captured / applied / trashed counts.", {}, () => ({
+    counts: db.stats(),
+    today: db.statsToday(),
+  }));
 
-  mcp.registerTool(
-    "get_resume",
-    {
-      description:
-        "Return the resume text (resume.txt in the data folder) for fit checks and form-filling.\n" +
-        "    One resume is shared by every track.",
-      inputSchema: {},
-      outputSchema: RESULT,
-    },
-    async () => {
-      const p = getPaths().RESUME_PATH;
-      return wrapped(fs.existsSync(p) ? fs.readFileSync(p, "utf-8") : "resume.txt not found");
-    }
-  );
+  tool("get_resume", "The resume text (resume.txt in the data folder) for fit checks and form-filling.", {}, () => {
+    const p = getPaths().RESUME_PATH;
+    return fs.existsSync(p) ? fs.readFileSync(p, "utf-8") : "resume.txt not found";
+  });
 
-  mcp.registerTool(
+  // --- capture + triage --------------------------------------------------------
+
+  tool(
     "add_job",
+    "Add a job (or refresh the one with the same LinkedIn id / URL). New jobs land in 'new'. Returns {id, duplicateCompany, created}.",
     {
-      description:
-        "Manually add a job (or other-source capture). Upserts on the LinkedIn id in the URL.\n" +
-        "    Returns {id, duplicateCompany}. New jobs land in status 'incoming', track 'remote'.",
-      inputSchema: {
-        url: z.string(),
-        company: z.string().default(""),
-        title: z.string().default(""),
-        body: z.string().default(""),
-        location: z.string().default(""),
-        source: z.string().default("manual"),
-      },
+      url: z.string(),
+      title: z.string().default(""),
+      company: z.string().default(""),
+      description: z.string().default(""),
+      location: z.string().default(""),
+      source: z.string().default("manual"),
+      agent: agentName.default("mcp"),
     },
-    async (args) => plain(db.addJob(args))
+    ({ agent, ...data }) => db.addJob(data, { actor: actorOf(agent), track: defaultTrack() })
   );
 
-  mcp.registerTool(
+  tool(
+    "triage_job",
+    "Triage a 'new' job: go → 'triaged' (optionally setting its track), no_go → 'trash'. The reason goes on the timeline.",
+    {
+      job_id: jobId,
+      decision: z.enum(["go", "no_go"]),
+      reason: z.string(),
+      track: optStr.describe("One of the tracks in settings.json"),
+      agent: agentName.default("triage"),
+    },
+    ({ job_id, decision, reason, track, agent }) => {
+      mustExist(job_id);
+      if (track !== undefined && !isValidTrack(track)) {
+        const known = readSettings().tracks.map((t) => t.key);
+        throw new db.TransitionError(`unknown track ${track}; known: ${known.join(", ") || "none configured"}`, {
+          code: "bad_status",
+        });
+      }
+      const actor = actorOf(agent);
+      const to = decision === "go" ? "triaged" : "trash";
+      const job = db.transition(job_id, to, { actor, message: `${decision === "go" ? "GO" : "NO-GO"}: ${reason}` });
+      return track !== undefined ? db.setJobFields(job_id, { track }, { actor }) : job;
+    }
+  );
+
+  // --- the apply loop ----------------------------------------------------------
+
+  tool(
+    "queue_next",
+    `Take the next piece of work: {message: {kind: 'start' | 'unblock', payload: answers}, job} or null.
+The job is leased to you (lease_minutes); no other agent gets it until you finish, release
+it, or the lease runs out. Jobs with a pending referral are skipped.`,
+    { agent: agentName, lease_minutes: z.number().int().min(1).max(240).default(30) },
+    ({ agent, lease_minutes }) => db.queueNext(actorOf(agent), { leaseMinutes: lease_minutes })
+  );
+
+  tool(
+    "update_progress",
+    "Record progress on a job you hold: the furthest step, the Chrome tab id, the application URL / ATS, and an optional timeline note. Renews your lease.",
+    {
+      job_id: jobId,
+      agent: agentName,
+      step: optStr,
+      tab_id: z.number().int().optional(),
+      apply_url: optStr,
+      ats: optStr,
+      message: optStr,
+    },
+    ({ job_id, agent, message, ...fields }) => {
+      const actor = actorOf(agent);
+      db.assertOwner(job_id, actor);
+      const set = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+      if (Object.keys(set).length) db.setJobFields(job_id, set, { actor });
+      if (message) db.addEvent(job_id, { actor, message });
+      db.renewLease(job_id, actor);
+      return db.getJob(job_id);
+    }
+  );
+
+  tool(
+    "mark_blocked",
+    "Hand a job you hold back to the human: in_progress → blocked with the list of things they must do. Releases your lease.",
+    { job_id: jobId, agent: agentName, needs: z.array(need).min(1), message: optStr },
+    ({ job_id, agent, needs, message }) => {
+      db.assertOwner(job_id, actorOf(agent));
+      return db.transition(job_id, "blocked", { actor: actorOf(agent), message: message || null, data: { needs } });
+    }
+  );
+
+  tool(
+    "mark_ready",
+    "The form is fully filled: in_progress → ready, waiting for the human to submit. Never submit yourself. Releases your lease.",
+    { job_id: jobId, agent: agentName, message: optStr },
+    ({ job_id, agent, message }) => {
+      db.assertOwner(job_id, actorOf(agent));
+      return db.transition(job_id, "ready", { actor: actorOf(agent), message: message || null });
+    }
+  );
+
+  tool(
+    "hold_job",
+    "Park a job (verification wall, possible scam, retry later): → on_hold with the reason. scam=true also flags the job.",
+    { job_id: jobId, agent: agentName, reason: z.string(), scam: z.boolean().default(false) },
+    ({ job_id, agent, reason, scam }) => {
+      const actor = actorOf(agent);
+      db.assertOwner(job_id, actor);
+      const job = db.transition(job_id, "on_hold", { actor, message: reason });
+      return scam ? db.setJobFields(job_id, { scam_flag: 1 }, { actor }) : job;
+    }
+  );
+
+  tool(
+    "release_job",
+    "Stop working on a job without finishing (error stop): the status stays, your lease is dropped, and the reason goes on the timeline.",
+    { job_id: jobId, agent: agentName, message: z.string() },
+    ({ job_id, agent, message }) => {
+      const actor = actorOf(agent);
+      db.assertOwner(job_id, actor);
+      db.releaseJob(job_id, { actor, message });
+      return db.getJob(job_id);
+    }
+  );
+
+  tool(
+    "add_event",
+    "Add a note to a job's timeline (agents write here, not in notes).",
+    { job_id: jobId, message: z.string(), agent: agentName },
+    ({ job_id, message, agent }) => {
+      mustExist(job_id);
+      return db.addEvent(job_id, { actor: actorOf(agent), message });
+    }
+  );
+
+  tool(
+    "record_outcome",
+    "Record an outcome found in email (actor 'gmail'): applied (confirmation), interviewing (invite / scheduling) or rejected. If you're not sure which job an email belongs to, use add_event instead.",
+    { job_id: jobId, outcome: z.enum(["applied", "interviewing", "rejected"]), evidence: z.string() },
+    ({ job_id, outcome, evidence }) => db.transition(job_id, outcome, { actor: "gmail", message: evidence })
+  );
+
+  // --- ATS accounts --------------------------------------------------------------
+
+  tool(
     "get_account",
-    {
-      description:
-        "Return the stored ATS login account for a Workday tenant host (e.g.\n" +
-        "    'nvidia.wd5.myworkdayjobs.com'), including the plaintext password, or null if\n" +
-        "    none is stored yet. Use this before registering so an existing login is reused.",
-      inputSchema: { tenant: z.string() },
-      outputSchema: RESULT,
-    },
-    async ({ tenant }) => wrapped(db.getAccount(tenant))
+    "The stored ATS login for a Workday tenant host (e.g. 'nvidia.wd5.myworkdayjobs.com'), including the plaintext password, or null. Check this before registering so an existing login is reused.",
+    { tenant: z.string() },
+    ({ tenant }) => db.getAccount(tenant)
   );
 
-  mcp.registerTool(
+  tool(
     "create_account",
-    {
-      description:
-        "Get-or-create the Workday login account for a tenant host. If one already\n" +
-        "    exists it is returned unchanged with created=False. Otherwise a strong password\n" +
-        "    is generated and stored, and the new record is returned with created=True. The\n" +
-        "    returned record includes the plaintext password to type into the Workday\n" +
-        "    Create-Account / Sign-In form (the one password-entry exception for this ATS).\n" +
-        '    email defaults to "email" in the data folder\'s settings.json.',
-      inputSchema: {
-        tenant: z.string(),
-        employer: z.string().default(""),
-        email: z.string().optional(),
-      },
-    },
-    async ({ tenant, employer, email }) => {
+    `Get-or-create the Workday login for a tenant host. An existing one comes back with
+created=false; otherwise a strong password is generated and stored, and the record comes
+back with created=true and the plaintext password to type into the Create-Account / Sign-In
+form (the one password-entry exception). email defaults to "email" in settings.json.`,
+    { tenant: z.string(), employer: z.string().default(""), email: optStr },
+    ({ tenant, employer, email }) => {
       const existing = db.getAccount(tenant);
-      if (existing) return plain({ ...existing, created: false });
+      if (existing) return { ...existing, created: false };
       const rec = db.saveAccount({
         tenant,
         employer,
@@ -178,28 +284,25 @@ function buildServer() {
         password: db.genPassword(),
         ats: "workday",
       });
-      return plain({ ...rec, created: true });
+      return { ...rec, created: true };
     }
   );
 
   return mcp;
 }
 
-// /api/* allows every origin (the bookmarklet needs that), but /mcp exposes stored
+// /api/jobs accepts every origin (bookmarklets need that), but /mcp exposes stored
 // passwords. Browsers always send Origin on these requests and Claude Code never does,
-// so any Origin is refused: no website can drive the MCP over localhost. The Host
-// check blocks DNS rebinding.
-function guard(req, res, next) {
-  const allowedHosts = [`127.0.0.1:${PORT}`, `localhost:${PORT}`];
-  if (req.get("Origin") || !allowedHosts.includes(req.get("Host"))) {
-    return res.status(403).json({ error: "forbidden" });
-  }
+// so any Origin is refused: no website can drive the MCP over localhost. (The Host
+// check against DNS rebinding runs for every route in server.js.)
+function refuseBrowsers(req, res, next) {
+  if (req.get("Origin")) return res.status(403).json({ error: "forbidden" });
   next();
 }
 
 export function mountMcp(app) {
   // Stateless: a fresh server + transport per request.
-  app.post("/mcp", guard, express.json({ limit: "5mb" }), async (req, res) => {
+  app.post("/mcp", refuseBrowsers, express.json({ limit: "5mb" }), async (req, res) => {
     const server = buildServer();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -224,6 +327,6 @@ export function mountMcp(app) {
   });
   const notAllowed = (req, res) =>
     res.status(405).json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null });
-  app.get("/mcp", guard, notAllowed);
-  app.delete("/mcp", guard, notAllowed);
+  app.get("/mcp", refuseBrowsers, notAllowed);
+  app.delete("/mcp", refuseBrowsers, notAllowed);
 }
