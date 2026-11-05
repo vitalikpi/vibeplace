@@ -1,4 +1,4 @@
-// Express backend for the job tracker (port of app.py).
+// Express backend for the job tracker.
 //
 // Serves the built React app (dist/), a small JSON API for the UI and the
 // bookmarklets, and the MCP endpoint at /mcp. SQLite is the source of truth (db.js).
@@ -26,7 +26,7 @@ function bookmarkletLabel(file) {
 // A file that is already a built bookmarklet (starts with `javascript:`) is served
 // as-is. Otherwise the source is treated as readable, normally-formatted JS and
 // URL-encoded (newlines preserved, so `//` comments stay valid after decoding).
-// Encodes like Python's quote(safe=""), which also escapes !'()*.
+// Percent-encodes everything except A-Za-z0-9 and -_.~ (encodeURIComponent leaves !'()*).
 // The sources may hardcode another tracker port; point every local address at this
 // server so captures land here.
 function toBookmarklet(src) {
@@ -110,7 +110,7 @@ export function createServer() {
   });
 
   app.patch("/api/jobs/:id", (req, res) => {
-    // Flask's <int:job_id>: anything but digits doesn't match the route.
+    // Only numeric ids match the route.
     if (!/^\d+$/.test(req.params.id)) return res.status(405).json({ error: "method not allowed" });
     const data = bodyJson(req);
     const updated = db.updateJob(Number(req.params.id), isObject(data) ? data : {});

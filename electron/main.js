@@ -142,7 +142,7 @@ if (!app.requestSingleInstanceLock()) {
       if (e.code === "EADDRINUSE") {
         dialog.showErrorBox(
           `Port ${PORT} in use`,
-          "Stop the old Flask tracker (app.py / run.sh) and relaunch."
+          "Another program (an old tracker?) is using it. Quit it, or start the app with PORT set to a free port."
         );
       } else {
         dialog.showErrorBox("Job Tracker failed to start", String(e.stack || e));

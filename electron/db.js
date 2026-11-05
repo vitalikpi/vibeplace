@@ -1,5 +1,5 @@
 // SQLite storage for the job tracker. Source of truth for all jobs.
-// Port of db.py on better-sqlite3: one shared connection, opened by initDb().
+// better-sqlite3 with one shared connection, opened by initDb().
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
@@ -65,8 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_accounts_tenant ON ats_accounts(tenant);
 
 let db = null;
 
-// Same format as Python's datetime.isoformat(timespec="seconds") on a UTC datetime
-// ("2026-11-05T14:03:22+00:00"). Timestamps are compared as strings (statsToday), so
+// UTC with whole seconds and an explicit offset ("2026-11-05T14:03:22+00:00"), the
+// format existing databases use. Timestamps are compared as strings (statsToday), so
 // toISOString()'s "...22.123Z" must never be stored.
 function isoSeconds(date) {
   return date.toISOString().slice(0, 19) + "+00:00";
@@ -76,7 +76,8 @@ function nowIso() {
   return isoSeconds(new Date());
 }
 
-// Python str() for the values a JSON body can carry in "notes".
+// Stringify a JSON value for "notes" (null/booleans as None/True/False, as rows
+// written by the original tracker have them).
 function pyStr(v) {
   if (v === null || v === undefined) return "None";
   if (v === true) return "True";

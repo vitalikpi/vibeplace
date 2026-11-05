@@ -16,8 +16,6 @@ The app runs one local server on `http://127.0.0.1:8775` (set `PORT` to override
 serves the UI, the bookmarklet API (`/api/*`, `/capture`, `/capture-batch`) and MCP
 (`/mcp`). On macOS, closing the window leaves the server running. Cmd+Q stops it.
 
-The default is 8775, not the legacy Flask tracker's 8765, so both can run at once.
-
 ## Data folder
 
 On first launch the app asks for a data folder. It remembers the choice in
@@ -85,9 +83,3 @@ TRACKER_DATA_ROOT=/path/to/folder PORT=8767 ELECTRON_RUN_AS_NODE=1 npx electron 
 
 `better-sqlite3` is built for Electron, so run any script that opens the database with
 `ELECTRON_RUN_AS_NODE=1 npx electron <script>`, not plain `node`.
-
-## Legacy Python version
-
-`app.py`, `db.py`, `mcp_server.py`, `import_old.py`, `requirements.txt` and `run.sh`
-are the original Flask/stdio-MCP implementation. They stay until the desktop app has
-proven itself, and then they can be deleted.

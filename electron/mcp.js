@@ -1,4 +1,4 @@
-// MCP server for the job tracker (port of mcp_server.py) — lets Claude read and triage
+// MCP server for the job tracker — lets Claude read and triage
 // jobs in jobs.db over Streamable HTTP at http://127.0.0.1:8775/mcp. It shares db.js
 // with the UI's API, so edits show up in the UI on next refresh. Only reachable while
 // the app is running.
@@ -30,7 +30,8 @@ function preview(job, includeBody) {
   return job;
 }
 
-// Results are shaped like Python FastMCP's: a JSON text block per value (one per
+// Results keep the shape of the original (Python FastMCP) server, which existing
+// skills rely on: a JSON text block per value (one per
 // item for lists, none for null) and, for tools whose return type FastMCP wraps
 // (list / optional / str), structuredContent {result}.
 const json = (v) => ({ type: "text", text: JSON.stringify(v, null, 2) });

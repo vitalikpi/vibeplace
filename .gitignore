@@ -155,6 +155,4 @@ release/
 *.db-shm
 *.db-journal
 settings.json
-.venv/
-__pycache__/
 .DS_Store
