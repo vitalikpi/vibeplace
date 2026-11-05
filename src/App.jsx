@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBookmarklet, getStats, getTodayStats, listJobs, updateJob } from "./api.js";
+import { getBookmarklet, getMe, getStats, getTodayStats, listJobs, updateJob } from "./api.js";
 import Filters from "./components/Filters.jsx";
 import Board from "./components/Board.jsx";
 import Bookmarklet from "./components/Bookmarklet.jsx";
@@ -20,11 +20,6 @@ export const TRACKS = [
   { key: "florida", label: "Florida" },
 ];
 
-export const ME_LINKS = [
-  { label: "LinkedIn", value: "https://www.linkedin.com/in/vpianykh/" },
-  { label: "GitHub", value: "https://github.com/vitalikpi" },
-];
-
 export default function App() {
   const [jobs, setJobs] = useState([]);
   const [stats, setStats] = useState({});
@@ -32,10 +27,11 @@ export default function App() {
   const [q, setQ] = useState("");
   const [showTrash, setShowTrash] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
-  const [bookmarklet, setBookmarklet] = useState({});
+  const [bookmarklets, setBookmarklets] = useState([]);
   const [showStats, setShowStats] = useState(false);
   const [today, setToday] = useState(null);
   const [showMe, setShowMe] = useState(false);
+  const [meLinks, setMeLinks] = useState([]);
   const [copied, setCopied] = useState("");
 
   const copy = (value) => {
@@ -67,14 +63,21 @@ export default function App() {
     refresh();
   }, [refresh]);
 
-  // Fetch the capture bookmarklet source once for the setup panel.
+  // Fetch the user's bookmarklets once for the setup panel.
   useEffect(() => {
     getBookmarklet()
-      .then((d) => setBookmarklet(d || {}))
+      .then((d) => setBookmarklets(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, []);
 
-  // Refetch when the window regains focus (e.g. after capturing jobs on LinkedIn).
+  // "Me" links come from settings.json in the data folder.
+  useEffect(() => {
+    getMe()
+      .then((d) => setMeLinks(d?.links || []))
+      .catch(() => {});
+  }, []);
+
+  // Refetch when the window regains focus (e.g. after capturing jobs with a bookmarklet).
   useEffect(() => {
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
@@ -109,19 +112,21 @@ export default function App() {
             setShowTrash={setShowTrash}
             trashCount={stats.trash || 0}
           />
-          <button
-            onClick={() => setShowMe((v) => !v)}
-            className={`ml-auto rounded px-3 py-1 text-sm font-medium ${
-              showMe
-                ? "bg-violet-600 text-white"
-                : "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
-            }`}
-          >
-            Me
-          </button>
+          {meLinks.length > 0 && (
+            <button
+              onClick={() => setShowMe((v) => !v)}
+              className={`ml-auto rounded px-3 py-1 text-sm font-medium ${
+                showMe
+                  ? "bg-violet-600 text-white"
+                  : "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
+              }`}
+            >
+              Me
+            </button>
+          )}
           <button
             onClick={toggleStats}
-            className={`rounded px-3 py-1 text-sm font-medium ${
+            className={`${meLinks.length > 0 ? "" : "ml-auto "}rounded px-3 py-1 text-sm font-medium ${
               showStats
                 ? "bg-emerald-600 text-white"
                 : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
@@ -142,12 +147,12 @@ export default function App() {
         </div>
         {error && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-            API error: {error}. Is the Flask server running on :8765?
+            API error: {error}. Is the Job Tracker app running?
           </p>
         )}
-        {showMe && (
+        {showMe && meLinks.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            {ME_LINKS.map((l) => (
+            {meLinks.map((l) => (
               <button
                 key={l.label}
                 onClick={() => copy(l.value)}
@@ -197,7 +202,7 @@ export default function App() {
         )}
         {showSetup && (
           <div className="mt-3">
-            <Bookmarklet codes={bookmarklet} />
+            <Bookmarklet items={bookmarklets} />
           </div>
         )}
       </header>

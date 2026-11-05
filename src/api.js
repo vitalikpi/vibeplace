@@ -1,5 +1,5 @@
-// Thin fetch wrapper around the Flask API. Relative URLs work both in dev (Vite
-// proxies /api -> :8765) and in production (Flask serves this app on :8765).
+// Thin fetch wrapper around the tracker API (electron/server.js). Relative URLs work
+// both in dev (Vite proxies /api -> the app's port) and in the app (served from :8775).
 
 async function req(url, opts) {
   const res = await fetch(url, opts);
@@ -21,6 +21,10 @@ export function getStats() {
 
 export function getBookmarklet() {
   return req("/api/bookmarklet");
+}
+
+export function getMe() {
+  return req("/api/me");
 }
 
 export function getTodayStats() {

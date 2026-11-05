@@ -147,3 +147,14 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Job Tracker
+release/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+settings.json
+.venv/
+__pycache__/
+.DS_Store

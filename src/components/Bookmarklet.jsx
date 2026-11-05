@@ -42,14 +42,23 @@ function BookmarkletLink({ label, code, color }) {
   );
 }
 
-export default function Bookmarklet({ codes }) {
-  const { add, dismiss, scrape } = codes || {};
+const COLORS = [
+  "bg-blue-600 hover:bg-blue-700",
+  "bg-emerald-600 hover:bg-emerald-700",
+  "bg-rose-600 hover:bg-rose-700",
+  "bg-amber-600 hover:bg-amber-700",
+  "bg-violet-600 hover:bg-violet-700",
+];
 
-  if (!add && !dismiss && !scrape) {
+// The user's own bookmarklets, one per .js file in the data folder's bookmarklets/.
+export default function Bookmarklet({ items }) {
+  if (!items?.length) {
     return (
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Bookmarklet source not found (expected <code>add-job.js</code> /{" "}
-        <code>dismiss-jobs.js</code> one level up from <code>tracker/</code>).
+        No bookmarklets yet. Put <code>.js</code> files in the data folder's{" "}
+        <code>bookmarklets/</code> and they show up here. A bookmarklet can send a posting
+        to <strong>Incoming</strong> by opening <code>/capture#&lt;job JSON&gt;</code> (or{" "}
+        <code>/capture-batch#&lt;JSON array&gt;</code>) on this app.
       </p>
     );
   }
@@ -60,35 +69,12 @@ export default function Bookmarklet({ codes }) {
         Drag each button up to your bookmarks bar.
       </p>
 
-      {add && (
-        <div>
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Add Job → sends the current LinkedIn posting to <strong>Incoming</strong>
-          </p>
-          <BookmarkletLink label="＋ Add Job" code={add} color="bg-blue-600 hover:bg-blue-700" />
+      {items.map((b, i) => (
+        <div key={b.file}>
+          <p className="mb-1 font-mono text-xs text-slate-500 dark:text-slate-400">{b.file}</p>
+          <BookmarkletLink label={b.label} code={b.code} color={COLORS[i % COLORS.length]} />
         </div>
-      )}
-
-      {scrape && (
-        <div>
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Scrape Page → opens each job on the search page, grabs its full description,
-            sends it to <strong>Incoming</strong>, then dismisses it. Runs slowly
-            (5–15s between jobs); click the badge to stop.
-          </p>
-          <BookmarkletLink label="⟳ Scrape Page" code={scrape} color="bg-emerald-600 hover:bg-emerald-700" />
-        </div>
-      )}
-
-      {dismiss && (
-        <div>
-          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Dismiss Shown → clicks the ✕ on every job currently visible on the LinkedIn
-            page (no request to the tracker)
-          </p>
-          <BookmarkletLink label="✕ Dismiss Shown" code={dismiss} color="bg-rose-600 hover:bg-rose-700" />
-        </div>
-      )}
+      ))}
 
       <p className="text-xs text-slate-500 dark:text-slate-400">
         If dragging isn’t allowed, hit “Copy code”, create a bookmark manually, and
