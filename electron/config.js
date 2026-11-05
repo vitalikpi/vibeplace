@@ -13,9 +13,9 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export const DIST_DIR = path.join(HERE, "..", "dist");
-// 8775 rather than the original tracker's 8765, so both can run side by side. The
-// bookmarklets served by /api/bookmarklet are rewritten to target this port.
-export const PORT = Number(process.env.PORT || 8775);
+// 7085 = "J0B5" in leetspeak. Also clear of the original tracker's 8765, so both can
+// run side by side. The bookmarklets the app hands out are rewritten to this port.
+export const PORT = Number(process.env.PORT || 7085);
 
 let paths = null;
 

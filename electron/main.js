@@ -1,5 +1,5 @@
 // Electron entry: picks the data folder, starts the capture + MCP server on
-// 127.0.0.1:8775 (PORT overrides) and shows the board in a window. The UI is loaded
+// 127.0.0.1:7085 (PORT overrides) and shows the board in a window. The UI is loaded
 // from disk and reaches the data over IPC only (preload.cjs → ipc.js). The server
 // lives as long as the app does (closing the window on macOS keeps it running for the
 // bookmarklets and Claude Code).

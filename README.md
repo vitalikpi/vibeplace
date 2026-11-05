@@ -17,14 +17,14 @@ npm run dist             # build release/Job Tracker-<version>-arm64.dmg (unsign
 ```
 window (React UI) ──IPC: window.tracker──► main process: db.js (SQLite)
                                                ▲
-bookmarklets ──► http://127.0.0.1:8775 ────────┤  /capture, /capture-batch, POST /api/jobs
-Claude Code  ──► http://127.0.0.1:8775/mcp ────┘
+bookmarklets ──► http://127.0.0.1:7085 ────────┤  /capture, /capture-batch, POST /api/jobs
+Claude Code  ──► http://127.0.0.1:7085/mcp ────┘
 ```
 
 - **UI:** loaded from `dist/` on disk (from Vite on :5173 in dev). It reads and edits
   data only through the preload bridge (`electron/preload.cjs` → `electron/ipc.js`), so
   none of the board's data is readable over the network.
-- **HTTP server:** on `127.0.0.1:8775` (set `PORT` to override). It has only the
+- **HTTP server:** on `127.0.0.1:7085` ("J0B5"; set `PORT` to override). It has only the
   ingestion routes and MCP. `POST /api/jobs` is the one cross-origin endpoint: it only
   inserts and answers `{id, duplicateCompany}`. Every request must carry
   `Host: 127.0.0.1:<port>` or `localhost:<port>`, which blocks DNS rebinding.
@@ -69,7 +69,7 @@ button labeled after its file name. A file can be readable JS, which the app URL
 or an already-built `javascript:` URL. Any `127.0.0.1:<port>` / `localhost:<port>` in
 it is rewritten to the app's port.
 
-To save a posting, a bookmarklet opens `http://127.0.0.1:8775/capture#<url-encoded JSON>`
+To save a posting, a bookmarklet opens `http://127.0.0.1:7085/capture#<url-encoded JSON>`
 with `{url, company, title, body, location, source}`, or `/capture-batch#<JSON array>`
 for several. These pages are served by the app itself, so they work on sites whose
 Content-Security-Policy blocks requests to localhost.
@@ -79,7 +79,7 @@ Content-Security-Policy blocks requests to localhost.
 While the app runs, point Claude Code at it in `.mcp.json`:
 
 ```json
-{ "mcpServers": { "jobtracker": { "type": "http", "url": "http://127.0.0.1:8775/mcp" } } }
+{ "mcpServers": { "jobtracker": { "type": "http", "url": "http://127.0.0.1:7085/mcp" } } }
 ```
 
 Tools: `list_jobs`, `get_job`, `update_job`, `stats`, `get_resume`, `add_job`,

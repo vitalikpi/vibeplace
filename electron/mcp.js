@@ -1,5 +1,5 @@
 // MCP server for the job tracker — lets Claude read and triage
-// jobs in jobs.db over Streamable HTTP at http://127.0.0.1:8775/mcp. It shares db.js
+// jobs in jobs.db over Streamable HTTP at http://127.0.0.1:7085/mcp. It shares db.js
 // with the UI's API, so edits show up in the UI on next refresh. Only reachable while
 // the app is running.
 //
