@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Saving…</title></head>
+<body style="font:600 18px -apple-system,system-ui,sans-serif;padding:32px;color:#0a66c2">
+<div id="m">Saving…</div>
+<script>
+(async () => {
+  const m = document.getElementById('m');
+  let payload;
+  try { payload = JSON.parse(decodeURIComponent(location.hash.slice(1))); }
+  catch (e) { m.style.color = '#b42318'; m.textContent = 'No job data in URL.'; return; }
+  try {
+    const r = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    m.textContent = (d.duplicateCompany ? '\u26A0 Already applied \u2014 ' : '\u2713 Saved \u2014 ')
+      + (payload.company || 'job') + ' \u2192 Incoming';
+    if (!d.duplicateCompany) setTimeout(() => window.close(), 800);
+  } catch (e) {
+    m.style.color = '#b42318';
+    m.textContent = 'Error saving: ' + e;
+  }
+})();
+</script>
+</body></html>
