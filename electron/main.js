@@ -1,19 +1,27 @@
-// Electron entry: picks the data folder, starts the API + MCP server on 127.0.0.1:8775 (PORT overrides)
-// and shows the board in a window. The server lives as long as the app does (closing
-// the window on macOS keeps it running for the bookmarklets and Claude Code).
+// Electron entry: picks the data folder, starts the capture + MCP server on
+// 127.0.0.1:8775 (PORT overrides) and shows the board in a window. The UI is loaded
+// from disk and reaches the data over IPC only (preload.cjs → ipc.js). The server
+// lives as long as the app does (closing the window on macOS keeps it running for the
+// bookmarklets and Claude Code).
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, Menu, shell } from "electron";
 
-import { PORT, envDataRoot, getPaths, setDataRoot } from "./config.js";
+import { DIST_DIR, PORT, envDataRoot, getPaths, setDataRoot } from "./config.js";
 import { closeDb, initDb } from "./db.js";
+import { registerIpc } from "./ipc.js";
 import { createServer } from "./server.js";
 
 app.setName("Job Tracker"); // same userData folder in dev and packaged builds
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEV = process.env.ELECTRON_DEV === "1";
-const APP_URL = DEV ? "http://localhost:5173" : `http://127.0.0.1:${PORT}`;
+const DEV_URL = "http://localhost:5173";
+const INDEX_HTML = path.join(DIST_DIR, "index.html");
+// Prefix every URL of the app's own page starts with (dev server or dist/ on disk).
+const APP_PREFIX = DEV ? DEV_URL + "/" : pathToFileURL(DIST_DIR).href + "/";
 const configPath = () => path.join(app.getPath("userData"), "config.json");
 
 let win = null;
@@ -86,14 +94,19 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-const isLocal = (url) => url.startsWith(APP_URL) || url.startsWith(`http://127.0.0.1:${PORT}`);
+const isAppUrl = (url) => url.startsWith(APP_PREFIX);
 
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
     height: 900,
     title: "Job Tracker",
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(HERE, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   });
   // Job links on cards open in the system browser, not in the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -101,7 +114,7 @@ function createWindow() {
     return { action: "deny" };
   });
   win.webContents.on("will-navigate", (e, url) => {
-    if (!isLocal(url)) {
+    if (!isAppUrl(url)) {
       e.preventDefault();
       shell.openExternal(url);
     }
@@ -109,7 +122,8 @@ function createWindow() {
   win.on("closed", () => {
     win = null;
   });
-  win.loadURL(APP_URL);
+  if (DEV) win.loadURL(DEV_URL);
+  else win.loadFile(INDEX_HTML);
 }
 
 // Plain http.Server rather than app.listen(): Express 5 hands bind errors to the
@@ -135,6 +149,10 @@ if (!app.requestSingleInstanceLock()) {
     const root = await resolveDataRoot();
     if (!root) return app.quit();
     setDataRoot(root);
+    if (!DEV && !fs.existsSync(INDEX_HTML)) {
+      dialog.showErrorBox("UI not built", "Run `npm run build` (or use `npm run electron:start`).");
+      return app.exit(1);
+    }
     try {
       initDb(getPaths().DB_PATH);
       server = await startServer();
@@ -149,6 +167,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       return app.exit(1);
     }
+    registerIpc(isAppUrl);
     buildMenu();
     createWindow();
   });

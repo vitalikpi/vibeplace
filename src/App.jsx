@@ -147,7 +147,7 @@ export default function App() {
         </div>
         {error && (
           <p className="mt-2 text-sm text-red-600 dark:text-red-400">
-            API error: {error}. Is the Job Tracker app running?
+            Error: {error}
           </p>
         )}
         {showMe && meLinks.length > 0 && (

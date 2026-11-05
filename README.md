@@ -12,9 +12,23 @@ npm run electron:start   # build the UI, run the app
 npm run dist             # build release/Job Tracker-<version>-arm64.dmg (unsigned)
 ```
 
-The app runs one local server on `http://127.0.0.1:8775` (set `PORT` to override). It
-serves the UI, the bookmarklet API (`/api/*`, `/capture`, `/capture-batch`) and MCP
-(`/mcp`). On macOS, closing the window leaves the server running. Cmd+Q stops it.
+### How it's wired
+
+```
+window (React UI) ──IPC: window.tracker──► main process: db.js (SQLite)
+                                               ▲
+bookmarklets ──► http://127.0.0.1:8775 ────────┤  /capture, /capture-batch, POST /api/jobs
+Claude Code  ──► http://127.0.0.1:8775/mcp ────┘
+```
+
+- **UI:** loaded from `dist/` on disk (from Vite on :5173 in dev). It reads and edits
+  data only through the preload bridge (`electron/preload.cjs` → `electron/ipc.js`), so
+  none of the board's data is readable over the network.
+- **HTTP server:** on `127.0.0.1:8775` (set `PORT` to override). It has only the
+  ingestion routes and MCP. `POST /api/jobs` is the one cross-origin endpoint: it only
+  inserts and answers `{id, duplicateCompany}`. Every request must carry
+  `Host: 127.0.0.1:<port>` or `localhost:<port>`, which blocks DNS rebinding.
+- **Lifecycle:** on macOS, closing the window leaves the server running. Cmd+Q stops it.
 
 ## Data folder
 
@@ -75,10 +89,10 @@ web pages can't reach it.
 
 ## Headless server
 
-To run the API/MCP without a window (this is how the parity tests ran):
+To run the capture endpoints and MCP without a window (for tests):
 
 ```sh
-TRACKER_DATA_ROOT=/path/to/folder PORT=8767 ELECTRON_RUN_AS_NODE=1 npx electron electron/serve.js
+TRACKER_DATA_ROOT=/path/to/folder PORT=8799 ELECTRON_RUN_AS_NODE=1 npx electron electron/serve.js
 ```
 
 `better-sqlite3` is built for Electron, so run any script that opens the database with

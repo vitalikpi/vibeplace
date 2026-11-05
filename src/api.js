@@ -1,44 +1,44 @@
-// Thin fetch wrapper around the tracker API (electron/server.js). Relative URLs work
-// both in dev (Vite proxies /api -> the app's port) and in the app (served from :8775).
+// Thin wrapper around the bridge the preload script exposes as window.tracker
+// (electron/preload.cjs → electron/ipc.js). The UI never talks HTTP to the app.
 
-async function req(url, opts) {
-  const res = await fetch(url, opts);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+function tracker() {
+  if (!window.tracker) throw new Error("not running inside the Job Tracker app");
+  return window.tracker;
+}
+
+// IPC errors arrive as "Error invoking remote method 'x': Error: msg"; keep msg.
+async function call(fn) {
+  try {
+    return await fn(tracker());
+  } catch (e) {
+    throw new Error(String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+  }
 }
 
 export function listJobs({ track, q } = {}) {
-  const params = new URLSearchParams();
-  if (track) params.set("track", track);
-  if (q) params.set("q", q);
-  const qs = params.toString();
-  return req(`/api/jobs${qs ? "?" + qs : ""}`);
+  return call((t) => t.listJobs({ track, q }));
 }
 
 export function getStats() {
-  return req("/api/stats");
+  return call((t) => t.stats());
 }
 
 export function getBookmarklet() {
-  return req("/api/bookmarklet");
+  return call((t) => t.bookmarklets());
 }
 
 export function getMe() {
-  return req("/api/me");
+  return call((t) => t.me());
 }
 
 export function getTodayStats() {
-  return req("/api/stats/today");
+  return call((t) => t.statsToday());
 }
 
 export function getDailyStats(days) {
-  return req(`/api/stats/daily${days ? "?days=" + days : ""}`);
+  return call((t) => t.statsDaily(days || null));
 }
 
 export function updateJob(id, fields) {
-  return req(`/api/jobs/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(fields),
-  });
+  return call((t) => t.updateJob(id, fields));
 }

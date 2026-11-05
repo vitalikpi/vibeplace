@@ -1,46 +1,24 @@
-// Express backend for the job tracker.
-//
-// Serves the built React app (dist/), a small JSON API for the UI and the
-// bookmarklets, and the MCP endpoint at /mcp. SQLite is the source of truth (db.js).
+// The app's only network surface, on 127.0.0.1:PORT:
+//   GET  /capture, /capture-batch   pages a bookmarklet opens to save postings
+//   POST /api/jobs                   ingestion (from those pages or straight from a site)
+//   POST /mcp                        Claude Code (see mcp.js)
+// The UI doesn't use HTTP at all; it talks to the main process over IPC (ipc.js).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
 import * as db from "./db.js";
-import { DIST_DIR, PORT, getPaths, readSettings } from "./config.js";
+import { PORT } from "./config.js";
 import { mountMcp } from "./mcp.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CAPTURE_HTML = fs.readFileSync(path.join(HERE, "capture.html"), "utf-8");
 const CAPTURE_BATCH_HTML = fs.readFileSync(path.join(HERE, "capture-batch.html"), "utf-8");
 
-// "add-job.js" -> "Add job"
-function bookmarkletLabel(file) {
-  const s = file.replace(/\.js$/i, "").replace(/[-_]+/g, " ").trim();
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-// Turn a .js source into a draggable `javascript:` bookmarklet.
-//
-// A file that is already a built bookmarklet (starts with `javascript:`) is served
-// as-is. Otherwise the source is treated as readable, normally-formatted JS and
-// URL-encoded (newlines preserved, so `//` comments stay valid after decoding).
-// Percent-encodes everything except A-Za-z0-9 and -_.~ (encodeURIComponent leaves !'()*).
-// The sources may hardcode another tracker port; point every local address at this
-// server so captures land here.
-function toBookmarklet(src) {
-  src = src.trim().replace(/\b(?:127\.0\.0\.1|localhost):\d+/g, `127.0.0.1:${PORT}`);
-  if (src.startsWith("javascript:")) return src;
-  return (
-    "javascript:" +
-    encodeURIComponent(src).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
-  );
-}
-
 // Parse the request body as JSON regardless of Content-Type.
 //
-// The bookmarklet sends Content-Type: text/plain (a CORS "simple request", no
+// A bookmarklet may send Content-Type: text/plain (a CORS "simple request", no
 // preflight), so the body arrives as raw text; parse it, falling back to {}.
 function bodyJson(req) {
   const raw = typeof req.body === "string" ? req.body : "";
@@ -53,82 +31,41 @@ function bodyJson(req) {
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-function sendIndex(res) {
-  const index = path.join(DIST_DIR, "index.html");
-  if (fs.existsSync(index)) return res.sendFile(index);
-  res
-    .type("html")
-    .send(
-      "<h1>Job Tracker API</h1><p>Frontend not built yet. " +
-        "Run <code>npm install && npm run build</code>.</p>"
-    );
-}
-
 export function createServer() {
   const app = express();
   app.disable("x-powered-by");
 
-  // Chrome Private Network Access: a fetch from a public site to this local server is
-  // blocked unless the CORS preflight answers with Access-Control-Allow-Private-Network:
-  // true. User bookmarklets may POST from any site, so /api/* allows all origins. /mcp
-  // is deliberately NOT covered (it exposes stored passwords; see mcp.js).
+  // DNS rebinding guard: a site that points its own hostname at 127.0.0.1 would look
+  // same-origin to the browser, but its requests still carry that hostname in Host.
+  const allowedHosts = [`127.0.0.1:${PORT}`, `localhost:${PORT}`];
   app.use((req, res, next) => {
-    const isApi = req.path.startsWith("/api/");
-    if (isApi || req.get("Access-Control-Request-Private-Network")) {
-      res.set("Access-Control-Allow-Private-Network", "true");
-    }
-    if (!isApi) return next();
-    res.set({
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
-    if (req.method === "OPTIONS") return res.status(204).end();
+    if (!allowedHosts.includes(req.get("Host"))) return res.status(403).send("forbidden host");
     next();
   });
 
   mountMcp(app);
 
-  app.use("/api", express.text({ type: "*/*", limit: "5mb" }));
-
-  app.post("/api/jobs", (req, res) => {
+  // Ingestion is the one cross-origin endpoint: user bookmarklets may POST straight
+  // from a job site. It only inserts and answers {id, duplicateCompany}. Chrome's
+  // Private Network Access additionally needs Access-Control-Allow-Private-Network on
+  // the preflight before a public site may reach localhost.
+  const ingestCors = (req, res, next) => {
+    res.set({
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Private-Network": "true",
+    });
+    next();
+  };
+  app.options("/api/jobs", ingestCors, (req, res) => res.status(204).end());
+  app.post("/api/jobs", ingestCors, express.text({ type: "*/*", limit: "5mb" }), (req, res) => {
     const data = bodyJson(req);
     if (!isObject(data) || !(data.url || data.title)) {
       return res.status(400).json({ error: "missing url/title" });
     }
     res.json(db.addJob(data));
   });
-
-  app.get("/api/jobs", (req, res) => {
-    res.json(
-      db.listJobs({
-        status: req.query.status || null,
-        track: req.query.track || null,
-        q: req.query.q || null,
-      })
-    );
-  });
-
-  app.patch("/api/jobs/:id", (req, res) => {
-    // Only numeric ids match the route.
-    if (!/^\d+$/.test(req.params.id)) return res.status(405).json({ error: "method not allowed" });
-    const data = bodyJson(req);
-    const updated = db.updateJob(Number(req.params.id), isObject(data) ? data : {});
-    if (updated === null) {
-      return res.status(400).json({ error: "no valid fields or job not found" });
-    }
-    res.json(updated);
-  });
-
-  app.get("/api/stats", (req, res) => res.json(db.stats()));
-  app.get("/api/stats/today", (req, res) => res.json(db.statsToday()));
-  app.get("/api/stats/daily", (req, res) => {
-    const days = /^-?\d+$/.test(req.query.days || "") ? Number(req.query.days) : null;
-    res.json(db.statsDaily(days));
-  });
-  app.get("/api/export", (req, res) => res.json(db.exportAll()));
-
-  app.get("/api/me", (req, res) => res.json({ links: readSettings().links }));
 
   // Same-origin capture page. A bookmarklet opens this in a new tab with the job JSON
   // in the URL hash; this page POSTs it to /api/jobs (no CORS / CSP / PNA issues,
@@ -141,34 +78,8 @@ export function createServer() {
   // open so the counts are visible.
   app.get("/capture-batch", (req, res) => res.type("html").send(CAPTURE_BATCH_HTML));
 
-  // The user's bookmarklets (<data folder>/bookmarklets/*.js), as draggable links for
-  // the UI: [{file, label, code}] sorted by file name. The app ships none; files on
-  // disk are the single source of truth.
-  app.get("/api/bookmarklet", (req, res) => {
-    const dir = getPaths().BOOKMARKLET_DIR;
-    let files = [];
-    try {
-      files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".js")).sort();
-    } catch {
-      /* no bookmarklets/ folder: none to offer */
-    }
-    const out = [];
-    for (const file of files) {
-      try {
-        const code = toBookmarklet(fs.readFileSync(path.join(dir, file), "utf-8"));
-        if (code !== "javascript:") out.push({ file, label: bookmarkletLabel(file), code });
-      } catch {
-        /* unreadable file: skip */
-      }
-    }
-    res.json(out);
-  });
-
-  // --- static frontend (built by `npm run build` into dist/) ---
-  app.get("/", (req, res) => sendIndex(res));
-  app.use(express.static(DIST_DIR, { index: false }));
-  // SPA fallback
-  app.get("/{*path}", (req, res) => sendIndex(res));
+  app.get("/", (req, res) => res.type("text").send("Job Tracker capture endpoint. Open the app to see the board."));
+  app.use((req, res) => res.status(404).json({ error: "not found" }));
 
   return app;
 }
