@@ -10,7 +10,12 @@ npm install              # also rebuilds native modules for Electron
 npm run electron:dev     # Vite on :5173 with hot reload + Electron
 npm run electron:start   # build the UI, run the app
 npm run dist             # build release/Job Tracker-<version>-arm64.dmg (unsigned)
+npm test                 # unit tests (Vitest); npm run test:watch to rerun on change
 ```
+
+Tests live in `test/` and run in plain Node. They use in-memory SQLite, temporary data
+folders, a fixed time zone (`America/New_York`) and a mocked `electron` module, so they
+never touch your data or open a port.
 
 ### How it's wired
 
