@@ -103,12 +103,15 @@ export function linkedinIdFromUrl(url) {
   return m ? m[1] : null;
 }
 
-// Return the lower-cased Workday tenant host (the account key) from a
-// *.myworkdayjobs.com URL, or null. E.g. 'nvidia.wd5.myworkdayjobs.com'.
-export function workdayTenantFromUrl(url) {
-  if (!url) return null;
-  const m = /https?:\/\/([^/]*\.myworkdayjobs\.com)/i.exec(url);
-  return m ? m[1].toLowerCase() : null;
+// Return the lower-cased host of an http(s) URL (the default account key), or null.
+// E.g. 'nvidia.wd5.myworkdayjobs.com' for a Workday tenant.
+export function accountHostFromUrl(url) {
+  try {
+    const u = new URL(url);
+    return /^https?:$/.test(u.protocol) ? u.hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 const ATS_HOSTS = [
@@ -625,9 +628,9 @@ export function statsDaily(days = null) {
   return out;
 }
 
-// --- ATS login accounts (per-employer Workday sign-ins) -----------------------
+// --- ATS login accounts (per-employer ATS sign-ins) ---------------------------
 
-// A strong random password meeting common Workday policies: at least one each
+// A strong random password meeting common ATS policies: at least one each
 // of upper, lower, digit and a safe special char; ambiguous chars excluded.
 export function genPassword(length = 18) {
   length = Math.max(length, 12);
@@ -651,9 +654,11 @@ export function getAccount(tenant) {
   return conn().prepare("SELECT * FROM ats_accounts WHERE tenant = ?").get(tenant) ?? null;
 }
 
-// Upsert an ATS account keyed on the tenant host. Keeps created_at, refreshes
-// updated_at. Returns the stored row.
-export function saveAccount({ tenant, employer, email, password, ats = "workday", notes = "" }) {
+// Upsert an ATS account keyed on the tenant (the login's host, or host/path where the
+// host is shared by many employers). Keeps created_at, refreshes updated_at. Returns
+// the stored row.
+export function saveAccount({ tenant, employer, email, password, ats = null, notes = "" }) {
+  ats = ats || atsFromUrl(`https://${(tenant || "").trim()}`) || "other";
   tenant = (tenant || "").trim().toLowerCase();
   const now = nowIso();
   return conn().transaction(() => {
@@ -675,8 +680,25 @@ export function saveAccount({ tenant, employer, email, password, ats = "workday"
   })();
 }
 
-// The account for a job's Workday tenant (from apply_url or url), if one is stored.
+// The account for a job, if one is stored: the one create_account linked to it (the
+// latest event with data.account), else the one keyed on its apply_url or url host.
 export function accountForJob(job) {
-  const tenant = workdayTenantFromUrl(job?.apply_url) || workdayTenantFromUrl(job?.url);
-  return tenant ? getAccount(tenant) : null;
+  if (!job) return null;
+  if (job.id != null) {
+    const linked = conn()
+      .prepare(
+        `SELECT json_extract(data, '$.account') FROM job_events
+          WHERE job_id = ? AND json_extract(data, '$.account') IS NOT NULL
+          ORDER BY at DESC, id DESC LIMIT 1`
+      )
+      .pluck()
+      .get(job.id);
+    const account = linked && getAccount(linked);
+    if (account) return account;
+  }
+  for (const url of [job.apply_url, job.url]) {
+    const account = getAccount(accountHostFromUrl(url));
+    if (account) return account;
+  }
+  return null;
 }

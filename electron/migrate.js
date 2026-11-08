@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS job_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_queue_open ON job_queue(done_at, created_at);
 
--- Per-employer ATS login accounts (Workday needs a separate account per tenant).
--- Keyed on the tenant host, which is the same login across all of that employer's
--- postings. Plaintext creds in this git-ignored local DB (single-user tool).
+-- Per-employer ATS login accounts (Workday, iCIMS, Taleo, … need one per employer).
+-- Keyed on the tenant (the login's host, or host/path on shared hosts), which is the
+-- same login across all of that employer's postings. Plaintext creds in this git-ignored local DB (single-user tool).
 CREATE TABLE IF NOT EXISTS ats_accounts (
   id          INTEGER PRIMARY KEY,
   ats         TEXT DEFAULT 'workday',

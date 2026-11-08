@@ -40,8 +40,10 @@ describe("URL helpers", () => {
     expect(db.linkedinIdFromUrl(undefined)).toBeNull();
   });
   it("finds the Workday tenant", () => {
-    expect(db.workdayTenantFromUrl("https://NVIDIA.wd5.myworkdayjobs.com/en-US/job/1")).toBe("nvidia.wd5.myworkdayjobs.com");
-    expect(db.workdayTenantFromUrl("https://example.com/myworkdayjobs.com")).toBeNull();
+    expect(db.accountHostFromUrl("https://NVIDIA.wd5.myworkdayjobs.com/en-US/job/1")).toBe("nvidia.wd5.myworkdayjobs.com");
+    expect(db.accountHostFromUrl("https://careers-acme.icims.com/jobs/1/login")).toBe("careers-acme.icims.com");
+    expect(db.accountHostFromUrl("javascript:alert(1)")).toBeNull();
+    expect(db.accountHostFromUrl(null)).toBeNull();
   });
   it("detects the ATS from an application URL's host", () => {
     expect(db.atsFromUrl("https://acme.wd1.myworkdayjobs.com/x")).toBe("workday");
@@ -433,9 +435,26 @@ describe("accounts", () => {
     expect(db.getAccount("  ")).toBeNull();
   });
 
-  it("accountForJob finds the account from the job's Workday URL", () => {
+  it("infers the ATS from the tenant unless given", () => {
+    expect(db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x", password: "p" }).ats).toBe("workday");
+    expect(db.saveAccount({ tenant: "acme.icims.com", email: "a@x", password: "p" }).ats).toBe("other");
+    expect(db.saveAccount({ tenant: "acme.taleo.net", email: "a@x", password: "p", ats: "taleo" }).ats).toBe("taleo");
+  });
+
+  it("accountForJob finds the account from the job's apply_url or url host, any ATS", () => {
     db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", employer: "Acme", email: "a@x", password: "p" });
+    db.saveAccount({ tenant: "careers-beta.icims.com", employer: "Beta", email: "b@x", password: "p" });
     expect(db.accountForJob({ apply_url: "https://acme.wd1.myworkdayjobs.com/job/1" })).toMatchObject({ email: "a@x" });
+    expect(db.accountForJob({ url: "https://careers-beta.icims.com/jobs/9" })).toMatchObject({ email: "b@x" });
     expect(db.accountForJob({ url: "https://example.com" })).toBeNull();
+  });
+
+  it("accountForJob prefers the account linked by an event (shared ATS hosts)", () => {
+    const { id } = db.addJob({ url: "https://jobs.dayforcehcm.com/en-US/acme/1", title: "t" });
+    db.saveAccount({ tenant: "jobs.dayforcehcm.com", email: "wrong@x", password: "p" });
+    db.saveAccount({ tenant: "jobs.dayforcehcm.com/acme", email: "a@x", password: "p" });
+    expect(db.accountForJob(db.getJob(id))).toMatchObject({ email: "wrong@x" });
+    db.addEvent(id, { actor: "agent:a", message: "linked", data: { account: "jobs.dayforcehcm.com/acme" } });
+    expect(db.accountForJob(db.getJob(id))).toMatchObject({ email: "a@x" });
   });
 });

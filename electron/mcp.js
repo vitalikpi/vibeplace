@@ -262,29 +262,52 @@ it, or the lease runs out. Jobs with a pending referral are skipped.`,
 
   tool(
     "get_account",
-    "The stored ATS login for a Workday tenant host (e.g. 'nvidia.wd5.myworkdayjobs.com'), including the plaintext password, or null. Check this before registering so an existing login is reused.",
+    "The stored ATS login for a tenant (the sign-in page's host, e.g. 'nvidia.wd5.myworkdayjobs.com'), including the plaintext password, or null. Check this before registering so an existing login is reused.",
     { tenant: z.string() },
     ({ tenant }) => db.getAccount(tenant)
   );
 
   tool(
     "create_account",
-    `Get-or-create the Workday login for a tenant host. An existing one comes back with
-created=false; otherwise a strong password is generated and stored, and the record comes
-back with created=true and the plaintext password to type into the Create-Account / Sign-In
-form (the one password-entry exception). email defaults to "email" in settings.json.`,
-    { tenant: z.string(), employer: z.string().default(""), email: optStr },
-    ({ tenant, employer, email }) => {
+    `Get-or-create the ATS login for a tenant: the sign-in page's host, e.g.
+'nvidia.wd5.myworkdayjobs.com' or 'acme.icims.com'; where one host serves many employers,
+add the path part that names the employer (e.g. 'jobs.dayforcehcm.com/acme'). An existing
+one comes back with created=false; otherwise a strong password is generated and stored, and
+the record comes back with created=true and the plaintext password to type into the
+Create-Account / Sign-In form (the one password-entry exception). Pass job_id to link the
+account to that job (a timeline event, no password), so the human sees it on the job.
+email defaults to "email" in settings.json; ats is inferred from the tenant if omitted.`,
+    {
+      tenant: z.string(),
+      employer: z.string().default(""),
+      email: optStr,
+      ats: optStr,
+      job_id: jobId.optional(),
+      agent: agentName.default("mcp"),
+    },
+    ({ tenant, employer, email, ats, job_id, agent }) => {
+      if (job_id != null) mustExist(job_id);
       const existing = db.getAccount(tenant);
-      if (existing) return { ...existing, created: false };
-      const rec = db.saveAccount({
-        tenant,
-        employer,
-        email: email ?? readSettings().email,
-        password: db.genPassword(),
-        ats: "workday",
-      });
-      return { ...rec, created: true };
+      const rec = existing
+        ? { ...existing, created: false }
+        : {
+            ...db.saveAccount({
+              tenant,
+              employer,
+              email: email ?? readSettings().email,
+              password: db.genPassword(),
+              ats,
+            }),
+            created: true,
+          };
+      if (job_id != null && db.accountForJob(db.getJob(job_id))?.id !== rec.id) {
+        db.addEvent(job_id, {
+          actor: actorOf(agent),
+          message: `${rec.created ? "Created" : "Using"} the ${rec.ats} account for ${rec.tenant} (${rec.email})`,
+          data: { account: rec.tenant },
+        });
+      }
+      return rec;
     }
   );
 

@@ -251,6 +251,23 @@ describe("accounts", () => {
     expect(again).toMatchObject({ id: first.id, email: "me@example.com", created: false });
     expect(await value("get_account", { tenant: "acme.wd1.myworkdayjobs.com" })).toMatchObject({ id: first.id });
   });
+
+  it("create_account works for any ATS and links the account to job_id once, without the password", async () => {
+    const id = started();
+    const rec = await value("create_account", { tenant: "jobs.dayforcehcm.com/acme", job_id: id, agent: "apply-1" });
+    expect(rec).toMatchObject({ tenant: "jobs.dayforcehcm.com/acme", ats: "dayforce", created: true });
+    expect(db.accountForJob(db.getJob(id))).toMatchObject({ id: rec.id });
+    await value("create_account", { tenant: "jobs.dayforcehcm.com/acme", job_id: id, agent: "apply-1" });
+    const linked = db.listEvents(id).filter((e) => e.data?.account);
+    expect(linked).toHaveLength(1);
+    expect(linked[0]).toMatchObject({ actor: "agent:apply-1", data: { account: "jobs.dayforcehcm.com/acme" } });
+    expect(JSON.stringify(db.listEvents(id))).not.toContain(rec.password);
+  });
+
+  it("create_account rejects an unknown job_id without creating the account", async () => {
+    await expect(value("create_account", { tenant: "acme.icims.com", job_id: 999 })).rejects.toThrow(/not found/);
+    expect(db.getAccount("acme.icims.com")).toBeNull();
+  });
 });
 
 describe("argument validation", () => {
