@@ -29,14 +29,14 @@ export const WAITING = ["blocked", "ready"];
 
 // Sidebar order. `waiting` is virtual (WAITING); the rest are one status each.
 export const FOLDERS = [
-  { key: "waiting", label: "Waiting for me", statuses: WAITING },
   { key: "new", label: "New", statuses: ["new"] },
   { key: "triaged", label: "Triaged", statuses: ["triaged"] },
   { key: "in_progress", label: "In progress", statuses: ["in_progress"] },
-  { key: "on_hold", label: "On hold", statuses: ["on_hold"] },
+  { key: "waiting", label: "Waiting for me", statuses: WAITING },
   { key: "applied", label: "Applied", statuses: ["applied"] },
   { key: "interviewing", label: "Interviewing", statuses: ["interviewing"] },
   { key: "rejected", label: "Rejected", statuses: ["rejected"] },
+  { key: "on_hold", label: "On hold", statuses: ["on_hold"] },
   { key: "trash", label: "Trash", statuses: ["trash"] },
 ];
 

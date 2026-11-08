@@ -16,6 +16,7 @@ import { app, BrowserWindow, dialog, Menu, Notification, shell } from "electron"
 import { DIST_DIR, PORT, envDataRoot, getPaths, setDataRoot } from "./config.js";
 import { closeDb, folderCounts, getJob, initDb, onChange } from "./db.js";
 import { registerIpc } from "./ipc.js";
+import { registerTerminalIpc, stopTerminal } from "./terminal.js";
 import { createServer } from "./server.js";
 import { STATUS_LABELS, WAITING, actorKind } from "./workflow.js";
 
@@ -75,8 +76,10 @@ async function resolveDataRoot() {
   );
 }
 
-// Stop accepting requests, let in-flight ones finish, then close the database.
+// Stop the terminal and accepting requests, let in-flight ones finish, then close the
+// database.
 async function shutdown() {
+  stopTerminal();
   if (server) {
     const s = server;
     server = null;
@@ -298,6 +301,7 @@ if (!app.requestSingleInstanceLock()) {
       return app.exit(1);
     }
     registerIpc(isAppUrl);
+    registerTerminalIpc(isAppUrl);
     buildMenu();
     started = true;
     createWindow();
@@ -310,10 +314,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on("activate", () => {
     if (started && !win) createWindow();
   });
+  // Hold the quit until the terminal, server and database are closed, then exit.
+  // app.exit rather than a second app.quit(): a re-entered quit doesn't complete when
+  // the first one came from a signal (SIGTERM), and there's nothing left to clean up.
   app.on("before-quit", (e) => {
     if (quitting) return;
     e.preventDefault();
     quitting = true;
-    shutdown().finally(() => app.quit());
+    shutdown().finally(() => app.exit(0));
   });
 }

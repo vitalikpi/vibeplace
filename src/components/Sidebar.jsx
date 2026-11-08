@@ -21,7 +21,7 @@ const item = (active) =>
   }`;
 
 // Folders (one per status, plus "Waiting for me"), track labels, and the other pages.
-export default function Sidebar({ view, folder, counts, tracks, track, links, onFolder, onTrack, onView }) {
+export default function Sidebar({ view, folder, counts, tracks, track, links, onFolder, onTrack, onView, terminalOpen, onTerminal }) {
   const [copied, setCopied] = useState("");
   const copy = (value) =>
     navigator.clipboard.writeText(value).then(() => {
@@ -83,6 +83,13 @@ export default function Sidebar({ view, folder, counts, tracks, track, links, on
             🔖
           </span>
           Bookmarklets
+        </button>
+        <button className={item(terminalOpen)} onClick={onTerminal} title="Claude Code in the data folder (⌃`)">
+          <span className="w-5 text-center" aria-hidden>
+            ⌨
+          </span>
+          <span className="flex-1">Claude Code</span>
+          <kbd className="text-[10px] text-slate-400">⌃`</kbd>
         </button>
       </div>
 

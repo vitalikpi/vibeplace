@@ -1,10 +1,45 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../../src/App.jsx";
 import { fakeTracker, job } from "./fixtures.js";
+
+// jsdom has no canvas, so stand in for xterm.js; the pane's wiring is what's tested.
+const terms = [];
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    constructor() {
+      this.cols = 90;
+      this.rows = 20;
+      this.written = [];
+      terms.push(this);
+    }
+    loadAddon() {}
+    open() {}
+    attachCustomKeyEventHandler() {}
+    onData(cb) {
+      this.input = cb;
+      return { dispose() {} };
+    }
+    write(d) {
+      this.written.push(d);
+    }
+    reset() {}
+    focus() {}
+    dispose() {}
+    hasSelection() {
+      return false;
+    }
+  },
+}));
+vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }));
+vi.mock("@xterm/addon-web-links", () => ({ WebLinksAddon: class {} }));
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  disconnect() {}
+};
 
 let tracker;
 beforeEach(() => {
@@ -18,6 +53,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   delete window.tracker;
+  localStorage.clear();
+  terms.length = 0;
 });
 
 const rows = () => screen.getAllByRole("row");
@@ -98,5 +135,36 @@ describe("App", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Remote/ }));
     await waitFor(() => expect(tracker.listJobs).toHaveBeenLastCalledWith(expect.objectContaining({ track: "remote" })));
     expect(tracker.folderCounts).toHaveBeenLastCalledWith("remote");
+  });
+
+  it("toggles the Claude Code pane with ⌃` and the sidebar, keeping the session while hidden", async () => {
+    const termBridge = {
+      start: vi.fn(async () => ({ pid: 1, cwd: "/data" })),
+      write: vi.fn(async () => {}),
+      resize: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      onData: vi.fn((cb) => ((termBridge.emit = cb), () => {})),
+      onExit: vi.fn(() => () => {}),
+    };
+    tracker.terminal = termBridge;
+    render(<App />);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(screen.queryByRole("region", { name: "Claude Code terminal" })).toBeNull();
+
+    await userEvent.keyboard("{Control>}`{/Control}");
+    const pane = await screen.findByRole("region", { name: "Claude Code terminal" });
+    await waitFor(() => expect(termBridge.start).toHaveBeenCalledWith(90, 20));
+    expect(await within(pane).findByText("running in the data folder")).toBeTruthy();
+
+    terms[0].input("claude\r"); // typing goes to the shell
+    expect(termBridge.write).toHaveBeenCalledWith("claude\r");
+    act(() => termBridge.emit("hi"));
+    expect(terms[0].written).toContain("hi");
+
+    const nav = screen.getByRole("navigation", { name: "Folders" });
+    await userEvent.click(within(nav).getByRole("button", { name: /Claude Code/ }));
+    expect(pane.className).toMatch(/\bhidden\b/);
+    expect(termBridge.stop).not.toHaveBeenCalled(); // hidden, not killed
+    expect(JSON.parse(localStorage.getItem("termOpen"))).toBe(false);
   });
 });

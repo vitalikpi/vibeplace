@@ -5,6 +5,13 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const invoke = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 
+// Listen to a push channel from main; returns unsubscribe.
+function subscribe(channel, cb) {
+  const listener = (_event, payload) => cb(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 contextBridge.exposeInMainWorld("tracker", {
   listJobs: invoke("jobs:list"),
   getJob: invoke("jobs:get"),
@@ -20,10 +27,15 @@ contextBridge.exposeInMainWorld("tracker", {
   statsDaily: invoke("stats:daily"),
   bookmarklets: invoke("bookmarklets:list"),
   settings: invoke("settings:get"),
-  // cb({jobIds, kinds}) after every write (UI, MCP or bookmarklet); returns unsubscribe.
-  onChange: (cb) => {
-    const listener = (_event, change) => cb(change);
-    ipcRenderer.on("tracker:changed", listener);
-    return () => ipcRenderer.removeListener("tracker:changed", listener);
+  // The embedded terminal (Claude Code in the data folder; see electron/terminal.js).
+  terminal: {
+    start: invoke("term:start"),
+    write: invoke("term:write"),
+    resize: invoke("term:resize"),
+    stop: invoke("term:stop"),
+    onData: (cb) => subscribe("term:data", cb),
+    onExit: (cb) => subscribe("term:exit", cb),
   },
+  // cb({jobIds, kinds}) after every write (UI, MCP or bookmarklet); returns unsubscribe.
+  onChange: (cb) => subscribe("tracker:changed", cb),
 });

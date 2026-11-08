@@ -62,6 +62,20 @@ stay in the job's **notes** field, which agents never write.
 Shortcuts: `j`/`k` move, `Enter` opens, `x` selects, `e` trashes, `s` starts, `h` holds,
 `/` searches, `Esc` closes. With a selection they apply to the whole selection.
 
+## Claude Code pane
+
+**⌃`** (or **⌨ Claude Code** in the sidebar) opens a terminal under the tracker, running
+Claude Code in the data folder. It uses your login shell (so `claude` is on PATH), and
+picks up that folder's `.mcp.json`, skills and `ANSWERS.md`. With the tracker on one half
+of the screen and Chrome on the other, the apply loop runs right here. When Claude
+exits, the pane stays a normal shell. Hiding the pane keeps the session; **Restart**
+starts a fresh one, and changing the data folder or quitting the app ends it.
+
+The shell runs in the main process through `node-pty` (`electron/terminal.js`), drawn by
+xterm.js in the window. Like the rest of the UI, it's reachable over IPC only, never over
+HTTP. `npm install` makes node-pty's `spawn-helper` executable (`postinstall`), and the
+packaged app keeps it outside the asar archive.
+
 ## Data folder
 
 On first launch the app asks for a data folder. It remembers the choice in

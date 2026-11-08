@@ -7,9 +7,27 @@ import JobList from "./components/JobList.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import StatsView from "./components/StatsView.jsx";
 import BookmarkletsView from "./components/BookmarkletsView.jsx";
+import TerminalPanel from "./components/TerminalPanel.jsx";
 
 export const PAGE_SIZE = 50;
 const errText = (e) => String(e?.message || e);
+
+// Per-viewer UI conveniences; storage can be unavailable, so never rely on it.
+function remembered(key, fallback) {
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function remember(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore */
+  }
+}
 
 // Three panes, Gmail style: folders | one page of jobs | the open job.
 // Data comes over IPC (api.js); main pushes a change after every write (UI, MCP,
@@ -31,9 +49,31 @@ export default function App() {
   const [version, setVersion] = useState(0); // bumps on every pushed change
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  // The Claude Code pane: mounted on first open, then kept (hiding keeps the session).
+  const [termOpen, setTermOpen] = useState(() => remembered("termOpen", false));
+  const [termMounted, setTermMounted] = useState(termOpen);
+  const [termHeight, setTermHeight] = useState(() => remembered("termHeight", 320));
   const searchRef = useRef(null);
   const openRef = useRef(openId);
   openRef.current = openId;
+
+  const toggleTerminal = useCallback(() => {
+    setTermMounted(true);
+    setTermOpen((o) => {
+      remember("termOpen", !o);
+      return !o;
+    });
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === "`") {
+        e.preventDefault();
+        toggleTerminal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleTerminal]);
 
   const flash = useCallback((msg) => {
     setToast(msg);
@@ -187,47 +227,62 @@ export default function App() {
         onFolder={openFolder}
         onTrack={setTrack}
         onView={setView}
+        terminalOpen={termOpen}
+        onTerminal={toggleTerminal}
       />
-      <main className="flex min-w-0 flex-1 overflow-hidden rounded-tl-2xl shadow-sm">
-        {view === "stats" && <StatsView version={version} />}
-        {view === "bookmarklets" && <BookmarkletsView />}
-        {view === "list" && (
-          <>
-            <JobList
-              title={folderLabel}
-              page={page}
-              offset={offset}
-              pageSize={PAGE_SIZE}
-              selected={selected}
-              cursor={cursor}
-              openId={openId}
-              q={q}
-              searchRef={searchRef}
-              onSearch={setQ}
-              onToggle={toggle}
-              onToggleAll={(ids) => setSelected(new Set(ids))}
-              onOpen={(id) => setOpenId(id === openId ? null : id)}
-              onPage={(o) => {
-                setOffset(o);
-                setCursor(0);
-              }}
-              onBulk={(to) => move([...selected], to)}
-            />
-            {detail && openId === detail.id && (
-              <JobDetail
-                job={detail}
-                tracks={settings.tracks}
-                onTransition={(to, opts) => move([detail.id], to, opts)}
-                onSetFields={(fields) => run(() => api.setFields(detail.id, fields))}
-                onResolveNeed={(needId) => run(() => api.resolveNeed(detail.id, needId))}
-                onAddNote={(message) => run(() => api.addNote(detail.id, message))}
-                onReveal={() => api.revealPassword(detail.id).catch((e) => (flash(errText(e)), null))}
-                onClose={() => setOpenId(null)}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-tl-2xl shadow-sm">
+          {view === "stats" && <StatsView version={version} />}
+          {view === "bookmarklets" && <BookmarkletsView />}
+          {view === "list" && (
+            <>
+              <JobList
+                title={folderLabel}
+                page={page}
+                offset={offset}
+                pageSize={PAGE_SIZE}
+                selected={selected}
+                cursor={cursor}
+                openId={openId}
+                q={q}
+                searchRef={searchRef}
+                onSearch={setQ}
+                onToggle={toggle}
+                onToggleAll={(ids) => setSelected(new Set(ids))}
+                onOpen={(id) => setOpenId(id === openId ? null : id)}
+                onPage={(o) => {
+                  setOffset(o);
+                  setCursor(0);
+                }}
+                onBulk={(to) => move([...selected], to)}
               />
-            )}
-          </>
+              {detail && openId === detail.id && (
+                <JobDetail
+                  job={detail}
+                  tracks={settings.tracks}
+                  onTransition={(to, opts) => move([detail.id], to, opts)}
+                  onSetFields={(fields) => run(() => api.setFields(detail.id, fields))}
+                  onResolveNeed={(needId) => run(() => api.resolveNeed(detail.id, needId))}
+                  onAddNote={(message) => run(() => api.addNote(detail.id, message))}
+                  onReveal={() => api.revealPassword(detail.id).catch((e) => (flash(errText(e)), null))}
+                  onClose={() => setOpenId(null)}
+                />
+              )}
+            </>
+          )}
+        </main>
+        {termMounted && (
+          <TerminalPanel
+            open={termOpen}
+            height={termHeight}
+            onHeight={(h) => {
+              setTermHeight(h);
+              remember("termHeight", h);
+            }}
+            onClose={toggleTerminal}
+          />
         )}
-      </main>
+      </div>
       {(error || toast) && (
         <div role="status" className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
           {error || toast}
