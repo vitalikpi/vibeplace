@@ -1,0 +1,35 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Updating…</title></head>
+<body style="font:600 18px -apple-system,system-ui,sans-serif;padding:32px;color:#0a66c2">
+<div id="m">Updating…</div>
+<script>
+// Opened by a bookmarklet as /act#<url-encoded JSON>:
+//   {"op": "unblock" | "submitted", "job_id"?, "url"?, "title"?, "answers"?}
+// Forwards it to POST /api/act (same origin, so no CORS / CSP issues) and closes on
+// success; stays open with the reason when nothing matched.
+(async () => {
+  const m = document.getElementById('m');
+  const fail = (text) => { m.style.color = '#b42318'; m.textContent = text; };
+  let payload;
+  try { payload = JSON.parse(decodeURIComponent(location.hash.slice(1))); }
+  catch (e) { return fail('No request in URL.'); }
+  try {
+    const r = await fetch('/api/act', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const why = d.error === 'ambiguous' ? 'Several jobs match (#' + d.candidates.join(', #') + ').'
+        : d.error === 'no match' ? 'No job matches this page.' : (d.error || r.status + ' ' + r.statusText);
+      return fail('✗ ' + why);
+    }
+    m.textContent = '✓ #' + d.job_id + ' → ' + d.status.replace('_', ' ');
+    setTimeout(() => window.close(), 900);
+  } catch (e) {
+    fail('Error: ' + e);
+  }
+})();
+</script>
+</body></html>

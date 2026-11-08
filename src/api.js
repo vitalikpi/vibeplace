@@ -11,34 +11,26 @@ async function call(fn) {
   try {
     return await fn(tracker());
   } catch (e) {
-    throw new Error(String(e?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ""));
+    throw new Error(String(e?.message || e).replace(/^Error invoking remote method '[^']+': (\w*Error: )?/, ""));
   }
 }
 
-export function listJobs({ track, q } = {}) {
-  return call((t) => t.listJobs({ track, q }));
-}
+export const listJobs = (opts) => call((t) => t.listJobs(opts));
+export const getJob = (id) => call((t) => t.getJob(id));
+export const folderCounts = (track) => call((t) => t.folderCounts(track || null));
+export const transition = (id, to, opts) => call((t) => t.transition(id, to, opts));
+export const bulkTransition = (ids, to, opts) => call((t) => t.bulkTransition(ids, to, opts));
+export const setFields = (id, fields) => call((t) => t.setFields(id, fields));
+export const resolveNeed = (id, needId) => call((t) => t.resolveNeed(id, needId));
+export const addNote = (id, message) => call((t) => t.addNote(id, message));
+export const revealPassword = (id) => call((t) => t.revealPassword(id));
+export const getStats = () => call((t) => t.stats());
+export const getTodayStats = () => call((t) => t.statsToday());
+export const getDailyStats = (days) => call((t) => t.statsDaily(days || null));
+export const getBookmarklets = () => call((t) => t.bookmarklets());
+export const getSettings = () => call((t) => t.settings());
 
-export function getStats() {
-  return call((t) => t.stats());
-}
-
-export function getBookmarklet() {
-  return call((t) => t.bookmarklets());
-}
-
-export function getMe() {
-  return call((t) => t.me());
-}
-
-export function getTodayStats() {
-  return call((t) => t.statsToday());
-}
-
-export function getDailyStats(days) {
-  return call((t) => t.statsDaily(days || null));
-}
-
-export function updateJob(id, fields) {
-  return call((t) => t.updateJob(id, fields));
+// Live updates from the main process; a no-op outside the app.
+export function onChange(cb) {
+  return window.tracker?.onChange ? window.tracker.onChange(cb) : () => {};
 }

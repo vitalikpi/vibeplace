@@ -17,15 +17,15 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(p)
       });
-      const d = await r.json();
-      if (d.duplicateCompany) dup++; else saved++;
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) failed++; else if (d.duplicateCompany) dup++; else saved++;
     } catch (e) { failed++; }
     m.textContent = 'Saving ' + (saved + dup + failed) + '/' + jobs.length + '\u2026';
   }
   m.textContent = '\u2713 Saved ' + saved
     + (dup ? ' \u00b7 ' + dup + ' already applied' : '')
     + (failed ? ' \u00b7 ' + failed + ' failed' : '')
-    + ' \u2192 Incoming';
+    + ' \u2192 New';
   if (!failed) setTimeout(() => window.close(), 1500);
 })();
 </script>

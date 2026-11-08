@@ -1,9 +1,14 @@
-// The user's bookmarklets (<data folder>/bookmarklets/*.js). The app ships none; the
-// files on disk are the single source of truth.
+// Bookmarklets for the UI's Bookmarklets page: the app's own workflow bookmarklets
+// (electron/builtin-bookmarklets/, not tied to any site), then the user's
+// (<data folder>/bookmarklets/*.js), whose files on disk are the single source of truth.
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { PORT, getPaths } from "./config.js";
+
+const BUILTIN_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "builtin-bookmarklets");
+const BUILTIN = [{ file: "unblocked.js", label: "✅ Unblocked" }];
 
 // "add-job.js" -> "Add job"
 function bookmarkletLabel(file) {
@@ -28,20 +33,26 @@ function toBookmarklet(src) {
   );
 }
 
-// [{file, label, code}] sorted by file name; empty if there is no bookmarklets/ folder.
+// [{file, label, code, builtin}]: the built-ins first, then the user's sorted by file
+// name (none if there is no bookmarklets/ folder).
 export function listBookmarklets() {
+  const out = BUILTIN.map(({ file, label }) => ({
+    file,
+    label,
+    code: toBookmarklet(fs.readFileSync(path.join(BUILTIN_DIR, file), "utf-8")),
+    builtin: true,
+  }));
   const dir = getPaths().BOOKMARKLET_DIR;
   let files = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".js")).sort();
   } catch {
-    return [];
+    return out;
   }
-  const out = [];
   for (const file of files) {
     try {
       const code = toBookmarklet(fs.readFileSync(path.join(dir, file), "utf-8"));
-      if (code !== "javascript:") out.push({ file, label: bookmarkletLabel(file), code });
+      if (code !== "javascript:") out.push({ file, label: bookmarkletLabel(file), code, builtin: false });
     } catch {
       /* unreadable file: skip */
     }

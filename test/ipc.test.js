@@ -9,6 +9,7 @@ vi.mock("electron", () => ({ ipcMain: { handle: (channel, fn) => handlers.set(ch
 
 const APP = "file:///app/dist/index.html";
 const invoke = (channel, ...args) => handlers.get(channel)({ senderFrame: { url: APP } }, ...args);
+const LI = (n) => `https://www.linkedin.com/jobs/view/${n}/`;
 
 beforeAll(async () => {
   const { registerIpc } = await import("../electron/ipc.js");
@@ -18,7 +19,7 @@ beforeAll(async () => {
 beforeEach(() => {
   freshDb();
   tempDataRoot({
-    "settings.json": JSON.stringify({ links: [{ label: "GitHub", value: "https://g" }] }),
+    "settings.json": JSON.stringify({ links: [{ label: "GitHub", value: "https://g" }], tracks: ["remote", "nyc"] }),
     "bookmarklets/add.js": "alert(1)",
   });
 });
@@ -26,7 +27,22 @@ beforeEach(() => {
 describe("IPC bridge", () => {
   it("registers exactly the channels the preload exposes", () => {
     expect([...handlers.keys()].sort()).toEqual(
-      ["bookmarklets:list", "jobs:list", "jobs:update", "me:get", "stats:daily", "stats:get", "stats:today"].sort()
+      [
+        "account:reveal",
+        "bookmarklets:list",
+        "folders:counts",
+        "jobs:addNote",
+        "jobs:bulkTransition",
+        "jobs:get",
+        "jobs:list",
+        "jobs:resolveNeed",
+        "jobs:setFields",
+        "jobs:transition",
+        "settings:get",
+        "stats:daily",
+        "stats:get",
+        "stats:today",
+      ].sort()
     );
   });
 
@@ -37,33 +53,80 @@ describe("IPC bridge", () => {
     expect(() => handlers.get("stats:get")({})).toThrow(/untrusted sender/);
   });
 
-  it("jobs:list passes string filters through and ignores anything else", () => {
-    db.addJob({ url: "https://example.com/1", title: "Engineer" });
-    db.addJob({ url: "https://example.com/2", title: "Designer" });
-    expect(invoke("jobs:list")).toHaveLength(2);
-    expect(invoke("jobs:list", { q: "engineer" }).map((j) => j.title)).toEqual(["Engineer"]);
-    expect(invoke("jobs:list", { q: 5, status: ["x"], track: "" })).toHaveLength(2);
+  it("jobs:list pages a folder, defaulting bad options", () => {
+    for (let n = 1; n <= 3; n++) db.addJob({ url: LI(n), title: `T${n}` });
+    expect(invoke("jobs:list", { folder: "new", limit: 2 })).toMatchObject({ total: 3, jobs: [{}, {}] });
+    expect(invoke("jobs:list", { folder: "bogus", limit: "x", offset: -1 }).total).toBe(3);
+    expect(invoke("jobs:list").jobs).toHaveLength(3);
+    expect(invoke("jobs:list", { folder: "waiting" }).total).toBe(0);
   });
 
-  it("jobs:update validates arguments and surfaces 'nothing valid' as an error", () => {
-    const { id } = db.addJob({ url: "https://example.com/1", title: "t" });
-    expect(invoke("jobs:update", id, { status: "review" })).toMatchObject({ id, status: "review" });
-    expect(() => invoke("jobs:update", "1", { status: "review" })).toThrow(/bad job id/);
-    expect(() => invoke("jobs:update", 1.5, { status: "review" })).toThrow(/bad job id/);
-    expect(() => invoke("jobs:update", id, ["status"])).toThrow(/bad job id/);
-    expect(() => invoke("jobs:update", id, { status: "bogus" })).toThrow(/no valid fields/);
+  it("jobs:get returns the detail with events, and the account without its password", () => {
+    const { id } = db.addJob({ url: LI(1), title: "t" });
+    db.setJobFields(id, { apply_url: "https://acme.wd1.myworkdayjobs.com/x" });
+    db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x", password: "secret" });
+    const job = invoke("jobs:get", id);
+    expect(job.events).toHaveLength(1);
+    expect(job.account).toEqual({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x" });
+    expect(JSON.stringify(job)).not.toContain("secret");
+    expect(invoke("account:reveal", id)).toBe("secret");
+    expect(invoke("jobs:get", 999)).toBeNull();
+    expect(() => invoke("jobs:get", "1")).toThrow(/bad job id/);
   });
 
-  it("serves stats, today's counts and the daily series", () => {
-    db.addJob({ url: "https://example.com/1", title: "t" });
-    expect(invoke("stats:get")).toEqual({ incoming: 1 });
-    expect(invoke("stats:today")).toEqual({ incoming: 1, applied: 0, trashed: 0 });
+  it("jobs:transition acts as the human, passing message, answers and override", () => {
+    const { id } = db.addJob({ url: LI(1), title: "t" });
+    expect(invoke("jobs:transition", id, "triaged", { message: "looks good" })).toMatchObject({ status: "triaged" });
+    expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "human", message: "looks good" });
+    expect(() => invoke("jobs:transition", id, "ready")).toThrow(/cannot move/);
+    invoke("jobs:transition", id, "rejected");
+    expect(invoke("jobs:transition", id, "applied", { override: true }).status).toBe("applied");
+  });
+
+  it("jobs:bulkTransition moves what it can and reports the rest", () => {
+    const a = db.addJob({ url: LI(1), title: "t" }).id;
+    const b = db.addJob({ url: LI(2), title: "t" }).id;
+    db.transition(b, "trash", { actor: "human" });
+    const out = invoke("jobs:bulkTransition", [a, b], "triaged");
+    expect(out.moved).toEqual([a]);
+    expect(out.refused).toMatchObject([{ id: b, reason: expect.stringMatching(/cannot move/) }]);
+    expect(() => invoke("jobs:bulkTransition", [], "trash")).toThrow(/no jobs/);
+  });
+
+  it("jobs:setFields validates the track against settings.json", () => {
+    const { id } = db.addJob({ url: LI(1), title: "t" });
+    expect(invoke("jobs:setFields", id, { track: "nyc", notes: "mine" })).toMatchObject({ track: "nyc", notes: "mine" });
+    expect(invoke("jobs:setFields", id, { track: null }).track).toBeNull();
+    expect(() => invoke("jobs:setFields", id, { track: "mars" })).toThrow(/unknown track/);
+    expect(() => invoke("jobs:setFields", id, { title: "x" })).toThrow(/no valid fields/);
+  });
+
+  it("jobs:resolveNeed and jobs:addNote", () => {
+    const { id } = db.addJob({ url: LI(1), title: "t" });
+    db.transition(id, "triaged", { actor: "human" });
+    db.transition(id, "in_progress", { actor: "human" });
+    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }] } });
+    expect(invoke("jobs:resolveNeed", id, "n1")).toEqual([]);
+    expect(() => invoke("jobs:resolveNeed", id, "n1")).toThrow(/need not found/);
+    expect(invoke("jobs:addNote", id, "called the recruiter")).toMatchObject({ actor: "human", message: "called the recruiter" });
+    expect(() => invoke("jobs:addNote", id, "")).toThrow(/empty note/);
+  });
+
+  it("folder counts, stats, bookmarklets and settings", () => {
+    db.addJob({ url: LI(1), title: "t" }, { track: "nyc" });
+    expect(invoke("folders:counts")).toMatchObject({ new: 1, waiting: 0 });
+    expect(invoke("folders:counts", "remote").new).toBe(0);
+    expect(invoke("stats:get")).toEqual({ new: 1 });
+    expect(invoke("stats:today")).toEqual({ captured: 1, applied: 0, trashed: 0 });
     expect(invoke("stats:daily", 7)).toHaveLength(1);
-    expect(invoke("stats:daily", "7")).toHaveLength(1); // non-integer → whole history
-  });
-
-  it("serves bookmarklets and the Me links from the data folder", () => {
-    expect(invoke("bookmarklets:list").map((b) => b.file)).toEqual(["add.js"]);
-    expect(invoke("me:get")).toEqual({ links: [{ label: "GitHub", value: "https://g" }] });
+    expect(invoke("stats:daily", -1)).toHaveLength(1);
+    expect(invoke("bookmarklets:list").map((b) => b.file)).toEqual(["unblocked.js", "add.js"]);
+    expect(invoke("settings:get")).toEqual({
+      links: [{ label: "GitHub", value: "https://g" }],
+      tracks: [
+        { key: "remote", label: "remote" },
+        { key: "nyc", label: "nyc" },
+      ],
+    });
   });
 });

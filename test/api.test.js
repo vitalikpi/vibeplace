@@ -6,52 +6,81 @@ afterEach(() => {
   delete globalThis.window;
 });
 
-const bridge = (overrides = {}) => {
-  globalThis.window = {
-    tracker: {
-      listJobs: vi.fn(async () => []),
-      updateJob: vi.fn(async (id, fields) => ({ id, ...fields })),
-      stats: vi.fn(async () => ({ incoming: 1 })),
-      statsToday: vi.fn(async () => ({})),
-      statsDaily: vi.fn(async () => []),
-      bookmarklets: vi.fn(async () => []),
-      me: vi.fn(async () => ({ links: [] })),
-      ...overrides,
-    },
-  };
+function bridge(overrides = {}) {
+  const methods = [
+    "listJobs",
+    "getJob",
+    "folderCounts",
+    "transition",
+    "bulkTransition",
+    "setFields",
+    "resolveNeed",
+    "addNote",
+    "revealPassword",
+    "stats",
+    "statsToday",
+    "statsDaily",
+    "bookmarklets",
+    "settings",
+  ];
+  const t = Object.fromEntries(methods.map((m) => [m, vi.fn(async (...args) => ({ method: m, args }))]));
+  t.onChange = vi.fn(() => () => {});
+  globalThis.window = { tracker: { ...t, ...overrides } };
   return globalThis.window.tracker;
-};
+}
 
 describe("src/api.js", () => {
   it("forwards each call to the matching bridge method", async () => {
     const t = bridge();
-    await api.listJobs({ track: "sf", q: "eng" });
-    expect(t.listJobs).toHaveBeenCalledWith({ track: "sf", q: "eng" });
-    expect(await api.updateJob(3, { status: "review" })).toEqual({ id: 3, status: "review" });
-    expect(await api.getStats()).toEqual({ incoming: 1 });
-    await api.getDailyStats(14);
-    expect(t.statsDaily).toHaveBeenCalledWith(14);
+    await api.listJobs({ folder: "new" });
+    expect(t.listJobs).toHaveBeenCalledWith({ folder: "new" });
+    await api.transition(3, "trash", { message: "m" });
+    expect(t.transition).toHaveBeenCalledWith(3, "trash", { message: "m" });
+    await api.bulkTransition([1, 2], "on_hold");
+    expect(t.bulkTransition).toHaveBeenCalledWith([1, 2], "on_hold", undefined);
+    await api.folderCounts("");
+    expect(t.folderCounts).toHaveBeenCalledWith(null);
     await api.getDailyStats(0);
-    expect(t.statsDaily).toHaveBeenLastCalledWith(null);
-    await api.getBookmarklet();
-    await api.getMe();
-    await api.getTodayStats();
-    expect(t.bookmarklets).toHaveBeenCalled();
-    expect(t.me).toHaveBeenCalled();
-    expect(t.statsToday).toHaveBeenCalled();
+    expect(t.statsDaily).toHaveBeenCalledWith(null);
+    expect(await api.revealPassword(4)).toEqual({ method: "revealPassword", args: [4] });
+    for (const [fn, m] of [
+      [api.getJob, "getJob"],
+      [api.setFields, "setFields"],
+      [api.resolveNeed, "resolveNeed"],
+      [api.addNote, "addNote"],
+      [api.getStats, "stats"],
+      [api.getTodayStats, "statsToday"],
+      [api.getBookmarklets, "bookmarklets"],
+      [api.getSettings, "settings"],
+    ]) {
+      await fn(1, 2);
+      expect(t[m]).toHaveBeenCalled();
+    }
   });
 
-  it("strips Electron's 'Error invoking remote method' prefix from errors", async () => {
+  it("strips Electron's remote-method prefix and the error class from errors", async () => {
     bridge({
-      updateJob: async () => {
-        throw new Error("Error invoking remote method 'jobs:update': Error: no valid fields or job not found");
+      transition: async () => {
+        throw new Error("Error invoking remote method 'jobs:transition': TransitionError: cannot move job 1 from new to ready");
+      },
+      setFields: async () => {
+        throw new Error("Error invoking remote method 'jobs:setFields': Error: unknown track mars");
       },
     });
-    await expect(api.updateJob(1, {})).rejects.toThrow(/^no valid fields or job not found$/);
+    await expect(api.transition(1, "ready")).rejects.toThrow(/^cannot move job 1 from new to ready$/);
+    await expect(api.setFields(1, {})).rejects.toThrow(/^unknown track mars$/);
   });
 
-  it("fails clearly outside the app (no bridge)", async () => {
+  it("fails clearly outside the app, and onChange is a no-op there", async () => {
     globalThis.window = {};
     await expect(api.getStats()).rejects.toThrow(/not running inside the Job Tracker app/);
+    expect(api.onChange(() => {})()).toBeUndefined();
+  });
+
+  it("onChange subscribes through the bridge", () => {
+    const t = bridge();
+    const cb = () => {};
+    api.onChange(cb);
+    expect(t.onChange).toHaveBeenCalledWith(cb);
   });
 });

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PORT, envDataRoot, getPaths, readSettings, setDataRoot } from "../electron/config.js";
+import { PORT, defaultTrack, envDataRoot, getPaths, isValidTrack, readSettings, setDataRoot } from "../electron/config.js";
 import { tempDataRoot } from "./helpers.js";
 
 describe("config", () => {
@@ -33,23 +33,54 @@ describe("config", () => {
   });
 
   describe("readSettings", () => {
+    const EMPTY = { email: "", links: [], tracks: [] };
+
     it("defaults when settings.json is missing", () => {
       tempDataRoot();
-      expect(readSettings()).toEqual({ email: "", links: [] });
+      expect(readSettings()).toEqual(EMPTY);
     });
 
     it("defaults when settings.json is malformed", () => {
       tempDataRoot({ "settings.json": "{broken" });
-      expect(readSettings()).toEqual({ email: "", links: [] });
+      expect(readSettings()).toEqual(EMPTY);
     });
 
     it("reads email and links, ignoring wrongly-typed values", () => {
       tempDataRoot({
         "settings.json": JSON.stringify({ email: "me@example.com", links: [{ label: "GitHub", value: "https://g" }] }),
       });
-      expect(readSettings()).toEqual({ email: "me@example.com", links: [{ label: "GitHub", value: "https://g" }] });
-      tempDataRoot({ "settings.json": JSON.stringify({ email: 5, links: "nope" }) });
-      expect(readSettings()).toEqual({ email: "", links: [] });
+      expect(readSettings()).toMatchObject({ email: "me@example.com", links: [{ label: "GitHub", value: "https://g" }] });
+      tempDataRoot({ "settings.json": JSON.stringify({ email: 5, links: "nope", tracks: "nyc" }) });
+      expect(readSettings()).toEqual(EMPTY);
+    });
+
+    it("drops malformed links", () => {
+      tempDataRoot({
+        "settings.json": JSON.stringify({
+          links: ["https://g", { label: "", value: "x" }, { label: "A", value: 5 }, { label: "Ok", value: "https://ok", extra: 1 }],
+        }),
+      });
+      expect(readSettings().links).toEqual([{ label: "Ok", value: "https://ok" }]);
+    });
+
+    it("reads tracks as strings or {key, label}, dropping blanks and duplicates", () => {
+      tempDataRoot({
+        "settings.json": JSON.stringify({ tracks: ["remote", { key: "nyc", label: "New York" }, "", "remote", { label: "x" }, 4] }),
+      });
+      expect(readSettings().tracks).toEqual([
+        { key: "remote", label: "remote" },
+        { key: "nyc", label: "New York" },
+      ]);
+      expect(defaultTrack()).toBe("remote");
+      expect(isValidTrack("nyc")).toBe(true);
+      expect(isValidTrack("mars")).toBe(false);
+      expect(isValidTrack(null)).toBe(true);
+    });
+
+    it("has no default track when none are configured", () => {
+      tempDataRoot();
+      expect(defaultTrack()).toBeNull();
+      expect(isValidTrack("remote")).toBe(false);
     });
 
     it("re-reads the file on every call", () => {
