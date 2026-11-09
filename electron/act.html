@@ -4,7 +4,7 @@
 <div id="m">Updating…</div>
 <script>
 // Opened by a bookmarklet as /act#<url-encoded JSON>:
-//   {"op": "unblock" | "submitted", "job_id"?, "url"?, "title"?, "answers"?}
+//   {"op": "unblock" | "submitted", "job_id"?, "url"?, "title"?}
 // Forwards it to POST /api/act (same origin, so no CORS / CSP issues) and closes on
 // success; stays open with the reason when nothing matched.
 (async () => {

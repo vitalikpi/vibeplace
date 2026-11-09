@@ -1,7 +1,6 @@
 import { allowedTargets } from "../workflow.js";
 
-// Button labels for the moves the human can make from a status. Unblock (blocked →
-// in_progress) lives in the needs list, where the answers are typed.
+// Button labels for the moves the human can make from a status.
 const LABELS = {
   triaged: (from) => (from === "new" ? "Triage ✓" : "Back to triaged"),
   in_progress: (from) => ({ triaged: "Start", on_hold: "Start", ready: "Send back to agent", blocked: "Unblock" })[from],

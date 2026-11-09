@@ -36,15 +36,15 @@ function renderList(jobs, props = {}) {
 }
 
 describe("JobList", () => {
-  it("renders one row per job, bold while it waits for the human, with its needs as the snippet", () => {
+  it("renders one row per job, bold while it waits for the human, with its latest event as the snippet", () => {
     renderList([
-      job({ id: 1, company: "Acme", status: "blocked", needs: [{ id: "n1", type: "consent", text: "Privacy dropdown" }] }),
+      job({ id: 1, company: "Acme", status: "blocked", last_event: "Accept the privacy dropdown" }),
       job({ id: 2, company: "Beta", status: "new", last_event: "captured" }),
     ]);
     const rows = screen.getAllByRole("row");
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText("Acme").className).toMatch(/font-semibold/);
-    expect(within(rows[0]).getByText(/needs: Privacy dropdown/)).toBeTruthy();
+    expect(within(rows[0]).getByText(/Accept the privacy dropdown/)).toBeTruthy();
     expect(within(rows[0]).getByLabelText("Blocked: needs you")).toBeTruthy();
     expect(within(rows[1]).getByText("Beta").className).not.toMatch(/font-semibold/);
   });

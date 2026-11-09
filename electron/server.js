@@ -79,7 +79,7 @@ export function createServer() {
     res.json({ id, duplicateCompany });
   });
 
-  // {op: 'unblock' | 'submitted', job_id?, url?, title?, answers?}. The job is found by
+  // {op: 'unblock' | 'submitted', job_id?, url?, title?}. The job is found by
   // id, then "#<id>" in the page title, then the application / posting URL.
   app.post("/api/act", ingestCors, textBody, (req, res) => {
     const data = bodyJson(req);
@@ -89,13 +89,8 @@ export function createServer() {
     const found = db.findJob({ jobId, title: data.title, url: data.url });
     if (found.error === "ambiguous") return res.status(409).json(found);
     if (found.error) return res.status(404).json(found);
-    const answers = isObject(data.answers) || typeof data.answers === "string" ? data.answers : undefined;
     try {
-      const job = db.transition(found.job.id, op.to, {
-        actor: "bookmarklet",
-        message: op.message,
-        data: answers === undefined ? null : { answers },
-      });
+      const job = db.transition(found.job.id, op.to, { actor: "bookmarklet", message: op.message });
       res.json({ ok: true, job_id: job.id, status: job.status });
     } catch (e) {
       if (!(e instanceof db.TransitionError)) throw e;

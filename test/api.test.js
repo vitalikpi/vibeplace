@@ -14,7 +14,6 @@ function bridge(overrides = {}) {
     "transition",
     "bulkTransition",
     "setFields",
-    "resolveNeed",
     "addNote",
     "revealPassword",
     "stats",
@@ -46,7 +45,6 @@ describe("src/api.js", () => {
     for (const [fn, m] of [
       [api.getJob, "getJob"],
       [api.setFields, "setFields"],
-      [api.resolveNeed, "resolveNeed"],
       [api.addNote, "addNote"],
       [api.getStats, "stats"],
       [api.getTodayStats, "statsToday"],

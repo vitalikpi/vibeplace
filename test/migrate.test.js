@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { closeDb, getJobDetail, initDb, listEvents, stats } from "../electron/db.js";
+import { accountForJob, closeDb, getJob, getJobDetail, initDb, listEvents, stats } from "../electron/db.js";
 import { SCHEMA_VERSION } from "../electron/migrate.js";
 
 // The schema the v1 tracker (Flask and the first Electron port) created.
@@ -58,7 +58,7 @@ afterEach(() => {
   if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("v1 → v2 migration", () => {
+describe("v1 → v3 migration", () => {
   it("backs the v1 file up before touching it", () => {
     const file = v1Db();
     initDb(file);
@@ -82,7 +82,8 @@ describe("v1 → v2 migration", () => {
     expect(stats()).toEqual({ new: 2, triaged: 1, applied: 1, rejected: 1, trash: 1 });
     expect(db.prepare("SELECT COUNT(*) FROM ats_accounts").pluck().get()).toBe(1);
     expect(db.prepare("SELECT DISTINCT track FROM jobs").pluck().all()).toEqual(["boston"]);
-    expect(getJobDetail(3)).toMatchObject({ applied_at: T(12), needs: [], scam_flag: false, apply_url: null });
+    expect(getJobDetail(3)).toMatchObject({ applied_at: T(12), scam_flag: false, apply_url: null, account_tenant: null });
+    expect(getJobDetail(3)).not.toHaveProperty("needs");
   });
 
   it("rebuilds the history as events and moves every note into one", () => {
@@ -144,6 +145,9 @@ CREATE TABLE ats_accounts (
 PRAGMA user_version = 2;
 `;
 
+// The v3 layout: v2 without linkedin_id, still with needs / data / payload.
+const V3_SCHEMA = V2_SCHEMA.replace("linkedin_id TEXT UNIQUE, ", "").replace("user_version = 2", "user_version = 3");
+
 function v2Db() {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-migrate-v2-"));
   const file = path.join(dir, "jobs.db");
@@ -197,10 +201,69 @@ describe("v2 → v3 migration", () => {
     expect(addJob({ url: "https://www.indeed.com/rc/clk?jk=9f&tk=z", title: "again" })).toMatchObject({ id: 2, created: false });
   });
 
-  it("also takes a v1 file all the way to v3", () => {
+  it("also takes a v1 file all the way to the current version", () => {
     const db = initDb(v1Db());
     expect(db.prepare("PRAGMA table_info(jobs)").all().map((c) => c.name)).not.toContain("linkedin_id");
     expect(listEvents(2).length).toBeGreaterThan(1);
+  });
+});
+
+// A v2 or v3 database with the needs / answers workflow's data in it.
+function needsDb(schema) {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-migrate-needs-"));
+  const file = path.join(dir, "jobs.db");
+  const raw = new Database(file);
+  raw.exec(schema);
+  raw.exec(`
+    INSERT INTO ats_accounts (tenant, email, password) VALUES ('jobs.dayforcehcm.com/acme', 'a@x', 'pw');
+    INSERT INTO jobs (id, url, status, needs) VALUES
+      (1, 'https://jobs.dayforcehcm.com/en-US/acme/1', 'blocked', '[{"id":"n1","type":"consent","text":"Privacy"}]'),
+      (2, 'https://example.com/2', 'applied', '[{"id":"n1","type":"review","text":"stale"}]');
+    INSERT INTO job_events (job_id, at, actor, to_status, message, data) VALUES
+      (1, '${T(10)}', 'agent:a', NULL, 'Using the account', '{"account":"jobs.dayforcehcm.com/acme"}'),
+      (1, '${T(11)}', 'agent:a', 'blocked', 'needs you', '{"needs":[{"type":"consent","text":"Privacy"}]}'),
+      (2, '${T(11)}', 'human', 'in_progress', NULL, '{"answers":{"n1":"3"}}');
+    INSERT INTO job_queue (job_id, kind, payload, created_at) VALUES (2, 'unblock', '{"n1":"3"}', '${T(11)}');
+  `);
+  raw.close();
+  return file;
+}
+
+describe("→ v4 migration (no needs / answers)", () => {
+  const cols = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+
+  for (const [label, schema] of [["v2", V2_SCHEMA], ["v3", V3_SCHEMA]]) {
+    it(`from ${label}: drops needs / data / payload, keeps every row, and moves the account link to account_tenant`, () => {
+      const db = initDb(needsDb(schema));
+      expect(db.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
+      expect(cols(db, "jobs")).not.toContain("needs");
+      expect(cols(db, "jobs")).not.toContain("linkedin_id");
+      expect(cols(db, "jobs")).toContain("account_tenant");
+      expect(cols(db, "job_events")).not.toContain("data");
+      expect(cols(db, "job_queue")).not.toContain("payload");
+      expect(db.prepare("SELECT COUNT(*) FROM job_events").pluck().get()).toBe(4);
+      expect(db.prepare("SELECT COUNT(*) FROM job_queue").pluck().get()).toBe(1);
+      expect(getJob(1).account_tenant).toBe("jobs.dayforcehcm.com/acme");
+      expect(accountForJob(getJob(1))).toMatchObject({ email: "a@x" });
+      expect(getJob(2).account_tenant).toBeNull();
+      expect(listEvents(1).map((e) => [e.actor, e.message])).toEqual([
+        ["agent:a", "Using the account"],
+        ["agent:a", "needs you"],
+        ["migration", "needs:\n- Privacy"], // a blocked job's needs survive as a note
+      ]);
+      expect(listEvents(2)).toHaveLength(1); // stale needs on a job that isn't blocked: no note
+      expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+    });
+  }
+
+  it("backs the v3 file up first, with the data still in it", () => {
+    const file = needsDb(V3_SCHEMA);
+    initDb(file);
+    const backups = fs.readdirSync(dir).filter((f) => /^jobs\.backup-v3-.*\.db$/.test(f));
+    expect(backups).toHaveLength(1);
+    const copy = new Database(path.join(dir, backups[0]), { readonly: true });
+    expect(copy.prepare("SELECT data FROM job_events WHERE id = 1").pluck().get()).toContain("account");
+    copy.close();
   });
 });
 

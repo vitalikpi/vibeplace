@@ -23,8 +23,8 @@ export function relTime(iso, now = Date.now()) {
 
 export const fullTime = (iso) => (iso ? new Date(iso).toLocaleString() : "");
 
-// One line under the title: what the job needs, else its latest timeline note.
+// One line under the title: its latest timeline note (for a blocked job, usually what
+// the agent needs).
 export function snippet(job) {
-  if (job.status === "blocked" && job.needs?.length) return "needs: " + job.needs.map((n) => n.text).join(" · ");
   return job.last_event || "";
 }
