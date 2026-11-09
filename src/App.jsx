@@ -49,7 +49,7 @@ export default function App() {
   const [version, setVersion] = useState(0); // bumps on every pushed change
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
-  // The Claude Code pane: mounted on first open, then kept (hiding keeps the session).
+  // The terminal pane: mounted on first open, then kept (hiding keeps the session).
   const [termOpen, setTermOpen] = useState(() => remembered("termOpen", false));
   const [termMounted, setTermMounted] = useState(termOpen);
   const [termHeight, setTermHeight] = useState(() => remembered("termHeight", 320));

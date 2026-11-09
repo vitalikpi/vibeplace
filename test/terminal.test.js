@@ -84,15 +84,15 @@ describe("shell detection", () => {
     expect(term.detectShells({ platform: "linux", env: {} })[0].file).toBe("/bin/zsh");
   });
 
-  it("finds Git Bash, PowerShell and cmd on Windows, in that default order", () => {
+  it("finds PowerShell, Git Bash and cmd on Windows, in that default order", () => {
     const shells = onWindows(["C:\\Program Files\\Git\\bin\\bash.exe", PS51, WIN_ENV.ComSpec]);
     expect(shells.map((s) => [s.id, s.kind, s.found])).toEqual([
-      ["gitbash", "posix", true],
       ["powershell", "powershell", true],
+      ["gitbash", "posix", true],
       ["cmd", "cmd", true],
     ]);
-    expect(shells[0].file).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
-    expect(term.resolveShell(undefined, shells).id).toBe("gitbash");
+    expect(byId(shells).gitbash.file).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(term.resolveShell(undefined, shells).id).toBe("powershell");
   });
 
   it("prefers CLAUDE_CODE_GIT_BASH_PATH, then a git.exe on PATH", () => {
@@ -121,25 +121,18 @@ describe("shell detection", () => {
     const shells = onWindows([PS51, WIN_ENV.ComSpec]);
     expect(term.resolveShell("cmd", shells).id).toBe("cmd");
     expect(term.resolveShell("gitbash", shells).id).toBe("powershell");
+    expect(term.resolveShell(undefined, onWindows(["C:\\Program Files\\Git\\bin\\bash.exe", WIN_ENV.ComSpec])).id).toBe("gitbash");
     expect(term.resolveShell(undefined, onWindows([]))).toBeNull();
   });
 });
 
 describe("shell command and environment", () => {
-  it("runs Claude Code in a login shell, then execs the same shell ($0) interactively", () => {
-    expect(term.shellCommand({ kind: "posix", file: "/bin/zsh" })).toEqual({
-      file: "/bin/zsh",
-      args: ["-l", "-i", "-c", 'claude; exec "$0" -l -i', "/bin/zsh"],
-    });
-    const bash = "C:\\Program Files\\Git\\bin\\bash.exe";
-    expect(term.shellCommand({ kind: "posix", file: bash }).args.at(-1)).toBe(bash);
+  it("runs a posix shell as an interactive login shell", () => {
+    expect(term.shellCommand({ kind: "posix", file: "/bin/zsh" })).toEqual({ file: "/bin/zsh", args: ["-l", "-i"] });
   });
-  it("keeps PowerShell and cmd open after Claude Code", () => {
-    expect(term.shellCommand({ kind: "powershell", file: "pwsh.exe" })).toEqual({
-      file: "pwsh.exe",
-      args: ["-NoLogo", "-NoExit", "-Command", "claude"],
-    });
-    expect(term.shellCommand({ kind: "cmd", file: "cmd.exe" })).toEqual({ file: "cmd.exe", args: ["/k", "claude"] });
+  it("runs PowerShell and cmd as plain interactive shells", () => {
+    expect(term.shellCommand({ kind: "powershell", file: "pwsh.exe" })).toEqual({ file: "pwsh.exe", args: ["-NoLogo"] });
+    expect(term.shellCommand({ kind: "cmd", file: "cmd.exe" })).toEqual({ file: "cmd.exe", args: [] });
   });
   it("drops Electron's and the tracker's own variables and sets a terminal type", () => {
     const env = term.shellEnv({ PATH: "/usr/bin", HOME: "/h", ELECTRON_RUN_AS_NODE: "1", TRACKER_DATA_ROOT: "/x", TRACKER_USER_DATA: "/y" });
@@ -153,14 +146,14 @@ describe("terminal IPC", () => {
     const out = await invoke("term:start", s, 120, 30);
     expect(out).toEqual({ pid: 1000, cwd: root, shell: "Login shell" });
     expect(spawned[0].opts).toMatchObject({ cwd: root, cols: 120, rows: 30, name: "xterm-256color" });
-    expect(spawned[0].args).toContain('claude; exec "$0" -l -i');
+    expect(spawned[0]).toMatchObject({ file: "/bin/zsh", args: ["-l", "-i"] });
   });
 
   it("starts the saved shell choice (Windows)", async () => {
     machine.shells = onWindows(["C:\\Program Files\\Git\\bin\\bash.exe", PS51, WIN_ENV.ComSpec]);
     machine.choice = "cmd";
     expect((await invoke("term:start", sender(), 80, 24)).shell).toBe("Command Prompt");
-    expect(spawned[0]).toMatchObject({ file: WIN_ENV.ComSpec, args: ["/k", "claude"] });
+    expect(spawned[0]).toMatchObject({ file: WIN_ENV.ComSpec, args: [] });
   });
 
   it("says so when no shell is installed", async () => {

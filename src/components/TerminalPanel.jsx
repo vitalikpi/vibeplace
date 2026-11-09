@@ -8,7 +8,7 @@ import { isMac, kbd, terminalKeyAction } from "../lib/platform.js";
 
 const MIN_HEIGHT = 120;
 
-// Claude Code in the data folder, in a pane under the tracker (electron/terminal.js
+// A shell in the data folder, in a pane under the tracker (electron/terminal.js
 // runs the shell). The pane stays mounted once opened, so hiding it keeps the session.
 export default function TerminalPanel({ open, height, onHeight, onClose }) {
   const box = useRef(null);
@@ -127,7 +127,7 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
 
   return (
     <section
-      aria-label="Claude Code terminal"
+      aria-label="Terminal"
       style={{ height }}
       className={`${open ? "flex" : "hidden"} shrink-0 flex-col border-t border-slate-700 bg-slate-900 text-slate-200`}
     >
@@ -139,7 +139,7 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
         className="h-1 cursor-row-resize bg-slate-700 hover:bg-blue-500"
       />
       <div className="flex items-center gap-3 px-3 py-1 text-xs">
-        <span className="font-semibold">⌨ Claude Code</span>
+        <span className="font-semibold">⌨ Terminal</span>
         <span className="text-slate-400">
           {status === "running"
             ? `running in the data folder${shellName ? ` (${shellName})` : ""}`
