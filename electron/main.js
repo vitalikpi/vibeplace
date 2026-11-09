@@ -17,6 +17,7 @@ import { DIST_DIR, PORT, envDataRoot, getPaths, setDataRoot } from "./config.js"
 import { closeDb, folderCounts, getJob, initDb, onChange } from "./db.js";
 import { registerIpc } from "./ipc.js";
 import { menuTemplate } from "./menu.js";
+import { seedDataFolder } from "./onboarding.js";
 import { detectShells, registerTerminalIpc, stopTerminal } from "./terminal.js";
 import { createServer } from "./server.js";
 import { STATUS_LABELS, WAITING, actorKind } from "./workflow.js";
@@ -117,10 +118,12 @@ function startupError(e) {
   }
 }
 
-// Open a data folder: database (migrating it if needed), server, change watching.
+// Open a data folder: starter files (empty folder only), database (migrating it if
+// needed), server, change watching.
 async function openDataFolder(root) {
   setDataRoot(root);
   try {
+    seedDataFolder(root); // before initDb, which creates jobs.db
     initDb(getPaths().DB_PATH);
     server = await startServer();
   } catch (e) {
