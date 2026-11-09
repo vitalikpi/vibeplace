@@ -9,7 +9,7 @@ vi.mock("electron", () => ({ ipcMain: { handle: (channel, fn) => handlers.set(ch
 
 const APP = "file:///app/dist/index.html";
 const invoke = (channel, ...args) => handlers.get(channel)({ senderFrame: { url: APP } }, ...args);
-const LI = (n) => `https://www.linkedin.com/jobs/view/${n}/`;
+const POST = (n) => `https://jobs.example.com/${n}`;
 
 beforeAll(async () => {
   const { registerIpc } = await import("../electron/ipc.js");
@@ -54,7 +54,7 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:list pages a folder, defaulting bad options", () => {
-    for (let n = 1; n <= 3; n++) db.addJob({ url: LI(n), title: `T${n}` });
+    for (let n = 1; n <= 3; n++) db.addJob({ url: POST(n), title: `T${n}` });
     expect(invoke("jobs:list", { folder: "new", limit: 2 })).toMatchObject({ total: 3, jobs: [{}, {}] });
     expect(invoke("jobs:list", { folder: "bogus", limit: "x", offset: -1 }).total).toBe(3);
     expect(invoke("jobs:list").jobs).toHaveLength(3);
@@ -62,7 +62,7 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:get returns the detail with events, and the account without its password", () => {
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     db.setJobFields(id, { apply_url: "https://acme.wd1.myworkdayjobs.com/x" });
     db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x", password: "secret" });
     const job = invoke("jobs:get", id);
@@ -75,7 +75,7 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:transition acts as the human, passing message, answers and override", () => {
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     expect(invoke("jobs:transition", id, "triaged", { message: "looks good" })).toMatchObject({ status: "triaged" });
     expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "human", message: "looks good" });
     expect(() => invoke("jobs:transition", id, "ready")).toThrow(/cannot move/);
@@ -84,8 +84,8 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:bulkTransition moves what it can and reports the rest", () => {
-    const a = db.addJob({ url: LI(1), title: "t" }).id;
-    const b = db.addJob({ url: LI(2), title: "t" }).id;
+    const a = db.addJob({ url: POST(1), title: "t" }).id;
+    const b = db.addJob({ url: POST(2), title: "t" }).id;
     db.transition(b, "trash", { actor: "human" });
     const out = invoke("jobs:bulkTransition", [a, b], "triaged");
     expect(out.moved).toEqual([a]);
@@ -94,7 +94,7 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:setFields validates the track against settings.json", () => {
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     expect(invoke("jobs:setFields", id, { track: "nyc", notes: "mine" })).toMatchObject({ track: "nyc", notes: "mine" });
     expect(invoke("jobs:setFields", id, { track: null }).track).toBeNull();
     expect(() => invoke("jobs:setFields", id, { track: "mars" })).toThrow(/unknown track/);
@@ -102,7 +102,7 @@ describe("IPC bridge", () => {
   });
 
   it("jobs:resolveNeed and jobs:addNote", () => {
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     db.transition(id, "triaged", { actor: "human" });
     db.transition(id, "in_progress", { actor: "human" });
     db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }] } });
@@ -113,7 +113,7 @@ describe("IPC bridge", () => {
   });
 
   it("folder counts, stats, bookmarklets and settings", () => {
-    db.addJob({ url: LI(1), title: "t" }, { track: "nyc" });
+    db.addJob({ url: POST(1), title: "t" }, { track: "nyc" });
     expect(invoke("folders:counts")).toMatchObject({ new: 1, waiting: 0 });
     expect(invoke("folders:counts", "remote").new).toBe(0);
     expect(invoke("stats:get")).toEqual({ new: 1 });

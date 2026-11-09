@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
 import { migrate } from "./migrate.js";
+import { boardPostingUrl, postingUrl } from "./postings.js";
 import {
   COMMITTED,
   QUEUE_ON_ENTER,
@@ -97,12 +98,6 @@ const parseJson = (s, dflt) => {
   }
 };
 
-export function linkedinIdFromUrl(url) {
-  if (!url) return null;
-  const m = /\/jobs\/view\/(\d+)/.exec(url);
-  return m ? m[1] : null;
-}
-
 // Return the lower-cased host of an http(s) URL (the default account key), or null.
 // E.g. 'nvidia.wd5.myworkdayjobs.com' for a Workday tenant.
 export function accountHostFromUrl(url) {
@@ -112,29 +107,6 @@ export function accountHostFromUrl(url) {
   } catch {
     return null;
   }
-}
-
-const ATS_HOSTS = [
-  [/(^|\.)myworkdayjobs\.com$|(^|\.)myworkdaysite\.com$/, "workday"],
-  [/(^|\.)greenhouse\.io$/, "greenhouse"],
-  [/(^|\.)ashbyhq\.com$/, "ashby"],
-  [/(^|\.)lever\.co$/, "lever"],
-  [/(^|\.)linkedin\.com$/, "linkedin"],
-  [/(^|\.)successfactors\.(com|eu)$/, "successfactors"],
-  [/(^|\.)dayforcehcm\.com$/, "dayforce"],
-  [/(^|\.)adp\.com$/, "adp"],
-  [/(^|\.)rippling\.com$/, "rippling"],
-];
-
-// ATS name for an application URL, from its host; null if the URL doesn't parse.
-export function atsFromUrl(url) {
-  let host;
-  try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-  return ATS_HOSTS.find(([re]) => re.test(host))?.[1] ?? "other";
 }
 
 function committedCompanies() {
@@ -167,22 +139,20 @@ function insertEvent(c, jobId, { actor, from = null, to = null, message = null, 
 }
 
 // Insert a job (bookmarklet, MCP, UI), or refresh the captured fields of the row
-// with the same LinkedIn id / URL. Returns {id, duplicateCompany, created}.
+// with the same posting URL (see postings.js). Returns {id, duplicateCompany, created}.
 export function addJob(data, { actor = "bookmarklet", track = null } = {}) {
-  const url = str(data.url);
+  const url = postingUrl(data.url);
   const company = str(data.company);
   const title = str(data.title);
   const body = str(data.body || data.description);
   const location = str(data.location);
-  const source = str(data.source, "linkedin");
-  const lid = linkedinIdFromUrl(url);
+  const source = str(data.source) || null;
   const now = nowIso();
 
   const out = conn().transaction(() => {
     const c = conn();
     let existing;
-    if (lid) existing = c.prepare("SELECT id FROM jobs WHERE linkedin_id = ?").get(lid);
-    if (!existing && url) existing = c.prepare("SELECT id FROM jobs WHERE url = ?").get(url);
+    if (url) existing = c.prepare("SELECT id FROM jobs WHERE url = ? ORDER BY id LIMIT 1").get(url);
 
     let id;
     let created = false;
@@ -199,11 +169,11 @@ export function addJob(data, { actor = "bookmarklet", track = null } = {}) {
       const blacklisted = COMPANY_BLACKLIST.has(normCompany(company));
       const info = c
         .prepare(
-          `INSERT INTO jobs (linkedin_id, url, company, title, location, body, source, track,
+          `INSERT INTO jobs (url, company, title, location, body, source, track,
              status, notes, needs, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,'new','','[]',?,?)`
+             VALUES (?,?,?,?,?,?,?,'new','','[]',?,?)`
         )
-        .run(lid, url, company, title, location, body, source, track, now, now);
+        .run(url, company, title, location, body, source, track, now, now);
       id = Number(info.lastInsertRowid);
       created = true;
       insertEvent(c, id, { actor, to: "new", message: "captured", at: now });
@@ -405,14 +375,10 @@ export function transition(jobId, to, { actor = "human", message = null, data = 
 const EDITABLE = ["apply_url", "ats", "step", "tab_id", "referral", "scam_flag", "track", "notes"];
 
 // Update non-status fields. Unknown keys are ignored; returns null when nothing valid
-// was given or the job doesn't exist. ats is detected from apply_url when not given.
+// was given or the job doesn't exist.
 export function setJobFields(jobId, fields, { actor = "human" } = {}) {
   const f = {};
   for (const k of EDITABLE) if (k in fields) f[k] = fields[k];
-  if (f.apply_url && !("ats" in f)) {
-    const cur = conn().prepare("SELECT ats FROM jobs WHERE id=?").get(jobId);
-    if (cur && !cur.ats) f.ats = atsFromUrl(f.apply_url);
-  }
   if ("scam_flag" in f) f.scam_flag = f.scam_flag ? 1 : 0;
   if ("tab_id" in f) f.tab_id = Number.isInteger(f.tab_id) ? f.tab_id : null;
   for (const k of ["apply_url", "ats", "step", "referral", "track"]) {
@@ -558,15 +524,13 @@ export function findJob({ jobId = null, title = null, url = null } = {}) {
   const key = normUrl(url);
   if (key) {
     const rows = conn().prepare("SELECT id, apply_url, url FROM jobs WHERE status <> 'trash'").all();
-    for (const field of ["apply_url", "url"]) {
-      const hits = rows.filter((r) => r[field] && normUrl(r[field]) === key);
+    // Board postings compare on their canonical URL (an Indeed id lives in the query).
+    const postingKey = (u) => boardPostingUrl(u) ?? normUrl(u);
+    for (const [field, norm] of [["apply_url", normUrl], ["url", postingKey]]) {
+      const want = norm(url);
+      const hits = rows.filter((r) => r[field] && norm(r[field]) === want);
       if (hits.length === 1) return { job: byId(hits[0].id) };
       if (hits.length > 1) return { error: "ambiguous", candidates: hits.map((h) => h.id) };
-    }
-    const lid = linkedinIdFromUrl(url);
-    if (lid) {
-      const row = conn().prepare("SELECT id FROM jobs WHERE linkedin_id=?").get(lid);
-      if (row) return { job: byId(row.id) };
     }
   }
   return { error: "no match" };
@@ -658,7 +622,7 @@ export function getAccount(tenant) {
 // host is shared by many employers). Keeps created_at, refreshes updated_at. Returns
 // the stored row.
 export function saveAccount({ tenant, employer, email, password, ats = null, notes = "" }) {
-  ats = ats || atsFromUrl(`https://${(tenant || "").trim()}`) || "other";
+  ats = ats || "other";
   tenant = (tenant || "").trim().toLowerCase();
   const now = nowIso();
   return conn().transaction(() => {

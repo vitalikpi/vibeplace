@@ -34,7 +34,7 @@ New columns on `jobs` (plus `owner` / `lease_until`, the per-job agent lock):
 | Column | Type | Purpose |
 |---|---|---|
 | `apply_url` | TEXT | The employer's application form URL (Workday, Ashby, Greenhouse…), which is often not `url`. |
-| `ats` | TEXT | `greenhouse`, `ashby`, `lever`, `workday`, `linkedin`, `successfactors`, `dayforce`, `adp`, `rippling`, `other`. |
+| `ats` | TEXT | Free text set by the agent (`update_progress`) or the human, e.g. `greenhouse`, `ashby`, `lever`, `workday`. Not inferred from the URL. |
 | `tab_id` | INTEGER | Chrome tab of the current fill. A hint only; it can go stale. |
 | `step` | TEXT | The furthest step reached, e.g. `workday:4/7 Application Questions`. |
 | `needs` | TEXT (JSON) | `[{"type":"consent","text":"Privacy dropdown"},{"type":"question","q":"Java level 1–3","answers_ref":146}]`. Types are `account`, `consent`, `question`, `captcha`, `review`, `wrong_page`. |
@@ -108,7 +108,6 @@ A long-running loop (`/loop` or a Monitor) does the following:
    - **Skip if busy:** if a subagent already owns the job, leave the message queued. This is the per-job lock.
    - **Pre-flight checks:**
      - `check_ats_budget(ats)`.
-     - LinkedIn 429 state. After a 429, don't use LinkedIn; find `apply_url` on the employer's own careers site.
      - `referral` not cleared means skip.
    - **Spawn a fresh subagent.** It must not depend on a previous subagent's memory.
 2. **Subagent resume contract:**
@@ -119,7 +118,7 @@ A long-running loop (`/loop` or a Monitor) does the following:
 3. **Concurrency:**
    - Run at most about 5 subagents at once.
    - Use one shared tab group. Never reset it. If it disappears, stop the batch and report it; never recreate it silently.
-4. **Hard stops**, already in the skill: LinkedIn 429, Greenhouse verification code, non-Workday account walls, payment/SSN/ID requests, and citizenship- or clearance-only roles.
+4. **Hard stops**, already in the skill: Greenhouse verification code, non-Workday account walls, payment/SSN/ID requests, and citizenship- or clearance-only roles.
 
 ## 6. Gmail watcher
 
@@ -144,6 +143,6 @@ Gmail-style, three panes (`src/App.jsx`):
 
 ## 8. Open questions
 
-- Should the triage agent also fill `apply_url` (by finding the employer posting) so the apply step can skip LinkedIn?
+- Should the triage agent also fill `apply_url` (by finding the employer posting) so the apply step can skip the job board?
 - Daily target: should the loop stop starting new jobs after N `ready` jobs pile up unsubmitted?
 - Is `offer` needed now, or later? *(Decided: later; not in v2.)*

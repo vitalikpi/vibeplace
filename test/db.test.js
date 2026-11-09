@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as db from "../electron/db.js";
 import { ISO_SECONDS, freshDb } from "./helpers.js";
 
-const LI = (n) => `https://www.linkedin.com/jobs/view/${n}/`;
+const POST = (n) => `https://jobs.example.com/${n}`;
 
 beforeEach(freshDb);
 afterEach(() => vi.useRealTimers());
@@ -16,7 +16,7 @@ const at = (iso) => {
 
 // A job walked to `status` through legal moves.
 function jobIn(status, { track = null, ...extra } = {}) {
-  const { id } = db.addJob({ url: LI(Math.floor(Math.random() * 1e9)), title: "t", ...extra }, { track });
+  const { id } = db.addJob({ url: POST(Math.floor(Math.random() * 1e9)), title: "t", ...extra }, { track });
   const path = {
     new: [],
     triaged: [["triaged", "human"]],
@@ -34,43 +34,29 @@ function jobIn(status, { track = null, ...extra } = {}) {
 }
 
 describe("URL helpers", () => {
-  it("extracts LinkedIn ids", () => {
-    expect(db.linkedinIdFromUrl(LI(4486579587))).toBe("4486579587");
-    expect(db.linkedinIdFromUrl("https://example.com/job/1")).toBeNull();
-    expect(db.linkedinIdFromUrl(undefined)).toBeNull();
-  });
   it("finds the Workday tenant", () => {
     expect(db.accountHostFromUrl("https://NVIDIA.wd5.myworkdayjobs.com/en-US/job/1")).toBe("nvidia.wd5.myworkdayjobs.com");
     expect(db.accountHostFromUrl("https://careers-acme.icims.com/jobs/1/login")).toBe("careers-acme.icims.com");
     expect(db.accountHostFromUrl("javascript:alert(1)")).toBeNull();
     expect(db.accountHostFromUrl(null)).toBeNull();
   });
-  it("detects the ATS from an application URL's host", () => {
-    expect(db.atsFromUrl("https://acme.wd1.myworkdayjobs.com/x")).toBe("workday");
-    expect(db.atsFromUrl("https://boards.greenhouse.io/acme/jobs/1")).toBe("greenhouse");
-    expect(db.atsFromUrl("https://job-boards.greenhouse.io/acme/jobs/1")).toBe("greenhouse");
-    expect(db.atsFromUrl("https://jobs.ashbyhq.com/acme/1")).toBe("ashby");
-    expect(db.atsFromUrl("https://jobs.lever.co/acme/1")).toBe("lever");
-    expect(db.atsFromUrl("https://careers.acme.com/1")).toBe("other");
-    expect(db.atsFromUrl("not a url")).toBeNull();
-  });
 });
 
 describe("addJob", () => {
   it("creates a new job with a 'captured' event and seconds-precision UTC timestamps", () => {
     const { id, duplicateCompany, created } = db.addJob(
-      { url: ` ${LI(1)} `, company: "  Acme ", title: " Engineer ", description: " text ", location: " NYC " },
+      { url: ` ${POST(1)} `, company: "  Acme ", title: " Engineer ", description: " text ", location: " NYC " },
       { actor: "bookmarklet", track: "remote" }
     );
     expect({ duplicateCompany, created }).toEqual({ duplicateCompany: false, created: true });
     const job = db.getJob(id);
     expect(job).toMatchObject({
-      linkedin_id: "1",
+      url: POST(1),
       company: "Acme",
       title: "Engineer",
       body: "text",
       location: "NYC",
-      source: "linkedin",
+      source: null,
       track: "remote",
       status: "new",
       notes: "",
@@ -81,39 +67,40 @@ describe("addJob", () => {
     expect(db.listEvents(id)).toMatchObject([{ actor: "bookmarklet", from_status: null, to_status: "new", message: "captured" }]);
   });
 
-  it("upserts on the LinkedIn id, refreshing captured fields but keeping status, notes and an existing body", () => {
-    const { id } = db.addJob({ url: LI(7), company: "Acme", title: "v1", body: "full text" });
+  it("upserts on the canonical posting URL, refreshing captured fields but keeping status, notes and an existing body", () => {
+    const { id } = db.addJob({ url: "https://www.indeed.com/viewjob?jk=abc123&from=serp", company: "Acme", title: "v1", body: "full text" });
+    expect(db.getJob(id).url).toBe("https://www.indeed.com/viewjob?jk=abc123");
     db.transition(id, "triaged", { actor: "human" });
     db.setJobFields(id, { notes: "mine" });
-    const again = db.addJob({ url: LI(7) + "?trk=abc", company: "Acme", title: "v2" });
+    const again = db.addJob({ url: "https://www.indeed.com/rc/clk?jk=abc123&tk=x", company: "Acme", title: "v2" });
     expect(again).toMatchObject({ id, created: false });
     expect(db.getJob(id)).toMatchObject({ title: "v2", body: "full text", status: "triaged", notes: "mine" });
   });
 
-  it("upserts on the exact URL when there is no LinkedIn id", () => {
+  it("upserts on the exact URL for postings outside a known board", () => {
     const a = db.addJob({ url: "https://example.com/job/9", title: "v1" });
     expect(db.addJob({ url: "https://example.com/job/9", title: "v2" }).id).toBe(a.id);
   });
 
   it("files blacklisted aggregators to trash with the reason as an event", () => {
-    const { id } = db.addJob({ url: LI(2), company: "  JOBOT ", title: "t" });
+    const { id } = db.addJob({ url: POST(2), company: "  JOBOT ", title: "t" });
     expect(db.getJob(id).status).toBe("trash");
     expect(db.listEvents(id).at(-1)).toMatchObject({ from_status: "new", to_status: "trash", message: "blacklisted: JOBOT" });
-    expect(db.getJob(db.addJob({ url: LI(3), company: "Jobot Labs", title: "t" }).id).status).toBe("new");
+    expect(db.getJob(db.addJob({ url: POST(3), company: "Jobot Labs", title: "t" }).id).status).toBe("new");
   });
 
   it("flags duplicateCompany once the company has a committed (triaged or later) job", () => {
-    const first = db.addJob({ url: LI(10), company: "Acme", title: "t" });
-    expect(db.addJob({ url: LI(11), company: "acme", title: "t" }).duplicateCompany).toBe(false);
+    const first = db.addJob({ url: POST(10), company: "Acme", title: "t" });
+    expect(db.addJob({ url: POST(11), company: "acme", title: "t" }).duplicateCompany).toBe(false);
     db.transition(first.id, "triaged", { actor: "agent:triage" });
-    expect(db.addJob({ url: LI(12), company: " ACME ", title: "t" }).duplicateCompany).toBe(true);
+    expect(db.addJob({ url: POST(12), company: " ACME ", title: "t" }).duplicateCompany).toBe(true);
   });
 });
 
 describe("transition", () => {
   it("moves the job, records who/when/why, and returns the updated job", () => {
     at("2026-11-01T10:00:00Z");
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     at("2026-11-01T11:00:00Z");
     const job = db.transition(id, "triaged", { actor: "agent:triage", message: "fits" });
     expect(job).toMatchObject({ id, status: "triaged", updated_at: "2026-11-01T11:00:00+00:00" });
@@ -251,11 +238,11 @@ describe("agent queue + lease", () => {
 });
 
 describe("fields, needs, events", () => {
-  it("setJobFields updates only editable fields and detects the ATS from apply_url", () => {
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+  it("setJobFields updates only editable fields and leaves the ATS to the caller", () => {
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     const job = db.setJobFields(id, { apply_url: "https://jobs.ashbyhq.com/acme/1", status: "applied", tab_id: 42, scam_flag: 1 });
-    expect(job).toMatchObject({ apply_url: "https://jobs.ashbyhq.com/acme/1", ats: "ashby", status: "new", tab_id: 42, scam_flag: true });
-    expect(db.setJobFields(id, { apply_url: "https://boards.greenhouse.io/x", ats: "other" }).ats).toBe("other");
+    expect(job).toMatchObject({ apply_url: "https://jobs.ashbyhq.com/acme/1", ats: null, status: "new", tab_id: 42, scam_flag: true });
+    expect(db.setJobFields(id, { apply_url: "https://boards.greenhouse.io/x", ats: "greenhouse" }).ats).toBe("greenhouse");
     expect(db.setJobFields(id, { title: "nope" })).toBeNull();
     expect(db.setJobFields(999, { notes: "x" })).toBeNull();
     expect(db.setJobFields(id, { referral: "", tab_id: "7" })).toMatchObject({ referral: null, tab_id: null });
@@ -271,7 +258,7 @@ describe("fields, needs, events", () => {
 
   it("addEvent appends a timeline note and bumps activity", () => {
     at("2026-11-01T10:00:00Z");
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     at("2026-11-01T12:00:00Z");
     expect(db.addEvent(id, { actor: "agent:a", message: "step 4/7" })).toMatchObject({ message: "step 4/7", to_status: null });
     expect(db.getJob(id).updated_at).toBe("2026-11-01T12:00:00+00:00");
@@ -281,7 +268,7 @@ describe("fields, needs, events", () => {
   it("onChange reports every committed write", () => {
     const seen = [];
     db.onChange((c) => seen.push(c));
-    const { id } = db.addJob({ url: LI(1), title: "t" });
+    const { id } = db.addJob({ url: POST(1), title: "t" });
     db.transition(id, "triaged", { actor: "human" });
     db.setJobFields(id, { notes: "x" });
     db.addEvent(id, { actor: "human", message: "m" });
@@ -297,7 +284,7 @@ describe("fields, needs, events", () => {
 describe("list queries", () => {
   it("listJobSummaries pages a folder without bodies, with the latest event as a snippet", () => {
     at("2026-11-01T10:00:00Z");
-    const ids = [1, 2, 3].map((n) => db.addJob({ url: LI(n), title: `T${n}`, company: "Co", body: "long text" }).id);
+    const ids = [1, 2, 3].map((n) => db.addJob({ url: POST(n), title: `T${n}`, company: "Co", body: "long text" }).id);
     at("2026-11-02T10:00:00Z");
     db.addEvent(ids[0], { actor: "human", message: "called recruiter" });
     const page = db.listJobSummaries({ folder: "new", limit: 2 });
@@ -347,7 +334,13 @@ describe("findJob (bookmarklet ops)", () => {
     expect(db.findJob({ title: `🟡 #${a} Apply – Acme` }).job.id).toBe(a);
     expect(db.findJob({ url: "https://ACME.wd1.myworkdayjobs.com/en-US/job/123/apply?x=1" }).job.id).toBe(a);
     expect(db.findJob({ url: "https://example.com/careers/9/" }).job.id).toBe(b);
-    expect(db.findJob({ url: LI(db.getJob(a).linkedin_id) + "?trk=x" }).job.id).toBe(a);
+  });
+
+  it("matches a board posting on its canonical URL, query id included", () => {
+    const a = db.addJob({ url: "https://www.indeed.com/viewjob?jk=aaa", title: "t" }).id;
+    const b = db.addJob({ url: "https://www.indeed.com/viewjob?jk=bbb", title: "t" }).id;
+    expect(db.findJob({ url: "https://www.indeed.com/jobs?q=eng&vjk=bbb" }).job.id).toBe(b);
+    expect(db.findJob({ url: "https://www.indeed.com/viewjob?jk=aaa&from=serp" }).job.id).toBe(a);
   });
 
   it("reports no match and ambiguity", () => {
@@ -370,10 +363,10 @@ describe("stats", () => {
 
   it("statsToday counts captures, first applications and trashings since local midnight", () => {
     at("2026-11-05T04:59:59Z"); // 23:59:59 local on Nov 4 (New York)
-    const old = db.addJob({ url: LI(1), title: "t" }).id;
+    const old = db.addJob({ url: POST(1), title: "t" }).id;
     at("2026-11-05T05:00:00Z");
-    const fresh = db.addJob({ url: LI(2), title: "t" }).id;
-    db.addJob({ url: LI(3), company: "Jobot", title: "t" }); // trashed on capture
+    const fresh = db.addJob({ url: POST(2), title: "t" }).id;
+    db.addJob({ url: POST(3), company: "Jobot", title: "t" }); // trashed on capture
     db.transition(old, "applied", { actor: "human" });
     db.transition(fresh, "trash", { actor: "human" });
     expect(db.statsToday()).toEqual({ captured: 2, applied: 1, trashed: 2 });
@@ -381,7 +374,7 @@ describe("stats", () => {
 
   it("statsDaily groups by local day from the event log, zero-filled through today", () => {
     at("2026-11-02T03:00:00Z"); // Nov 1, 23:00 local
-    const a = db.addJob({ url: LI(1), title: "t" }).id;
+    const a = db.addJob({ url: POST(1), title: "t" }).id;
     at("2026-11-03T15:00:00Z");
     db.transition(a, "applied", { actor: "human" });
     at("2026-11-04T15:00:00Z");
@@ -399,7 +392,7 @@ describe("stats", () => {
 
   it("statsDaily limits to `days` ≥ 1 and treats anything else as all history", () => {
     at("2026-10-01T15:00:00Z");
-    db.addJob({ url: LI(1), title: "t" });
+    db.addJob({ url: POST(1), title: "t" });
     at("2026-11-05T15:00:00Z");
     expect(db.statsDaily(3).map((d) => d.date)).toEqual(["2026-11-03", "2026-11-04", "2026-11-05"]);
     expect(db.statsDaily(0)).toHaveLength(36);
@@ -435,9 +428,9 @@ describe("accounts", () => {
     expect(db.getAccount("  ")).toBeNull();
   });
 
-  it("infers the ATS from the tenant unless given", () => {
-    expect(db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x", password: "p" }).ats).toBe("workday");
-    expect(db.saveAccount({ tenant: "acme.icims.com", email: "a@x", password: "p" }).ats).toBe("other");
+  it("stores the ATS it is given, else 'other'", () => {
+    expect(db.saveAccount({ tenant: "acme.wd1.myworkdayjobs.com", email: "a@x", password: "p" }).ats).toBe("other");
+    expect(db.saveAccount({ tenant: "acme.icims.com", email: "a@x", password: "p", ats: "icims" }).ats).toBe("icims");
     expect(db.saveAccount({ tenant: "acme.taleo.net", email: "a@x", password: "p", ats: "taleo" }).ats).toBe("taleo");
   });
 

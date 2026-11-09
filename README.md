@@ -121,13 +121,18 @@ copies it to `jobs.backup-v1-<date>.db` first, then renames `incoming` → `new`
 `review` → `triaged`. It rebuilds the history as events from the stored timestamps and
 moves every existing note into an event.
 
+**Migration to v3:** opening a v2 `jobs.db` copies it to `jobs.backup-v2-<date>.db`,
+drops the `linkedin_id` column and rewrites each job's `url` to its canonical posting
+URL (`electron/postings.js`). Jobs are deduplicated on that URL: known boards (LinkedIn,
+Indeed) ignore tracking params; any other URL must match exactly.
+
 `settings.json`:
 
 ```json
 {
   "email": "you@example.com",
   "links": [
-    { "label": "LinkedIn", "value": "https://www.linkedin.com/in/you/" },
+    { "label": "Portfolio", "value": "https://you.example.com" },
     { "label": "GitHub", "value": "https://github.com/you" }
   ],
   "tracks": ["remote", { "key": "nyc", "label": "NYC" }]

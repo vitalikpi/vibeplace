@@ -1,22 +1,24 @@
 // Schema versions, tracked in PRAGMA user_version.
 //   0  empty file (fresh install) or a v1 database (jobs table, no version)
 //   2  staged workflow: job_events, job_queue, agent columns on jobs
-// A v1 database is copied next to itself (jobs.backup-v1-<date>.db) before migrating.
+//   3  board-neutral jobs: no linkedin_id, url is the canonical posting URL (postings.js)
+// An existing database is copied next to itself (jobs.backup-v<n>-<date>.db) before migrating.
 import fs from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 2;
+import { postingUrl } from "./postings.js";
 
-const JOBS_V2 = `
-CREATE TABLE IF NOT EXISTS jobs (
+export const SCHEMA_VERSION = 3;
+
+const jobsTable = (name) => `
+CREATE TABLE IF NOT EXISTS ${name} (
   id          INTEGER PRIMARY KEY,
-  linkedin_id TEXT UNIQUE,
-  url         TEXT,
+  url         TEXT,                     -- the posting, canonical per board (dedup key)
   company     TEXT,
   title       TEXT,
   location    TEXT,
   body        TEXT,
-  source      TEXT DEFAULT 'linkedin',
+  source      TEXT,                     -- where it was found: a board name, 'manual', …
   track       TEXT,
   status      TEXT DEFAULT 'new',
   notes       TEXT DEFAULT '',          -- the human's own notes; agents write events
@@ -34,10 +36,13 @@ CREATE TABLE IF NOT EXISTS jobs (
   lease_until TEXT                      -- the lock expires here
 );`;
 
-const COMMON_V2 = `
+const JOBS_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_jobs_url ON jobs(url);
+`;
 
+const COMMON_V2 = `
 -- Every status change plus agent / human remarks. Replaces overwriting notes.
 CREATE TABLE IF NOT EXISTS job_events (
   id          INTEGER PRIMARY KEY,
@@ -97,10 +102,10 @@ const NEW_JOB_COLUMNS = [
 const hasTable = (db, name) =>
   Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
 
-function backup(db, dbPath) {
+function backup(db, dbPath, version) {
   if (!dbPath || dbPath === ":memory:") return null;
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  const dest = path.join(path.dirname(dbPath), `jobs.backup-v1-${stamp}.db`);
+  const dest = path.join(path.dirname(dbPath), `jobs.backup-v${version}-${stamp}.db`);
   if (fs.existsSync(dest)) fs.rmSync(dest);
   db.prepare("VACUUM INTO ?").run(dest);
   return dest;
@@ -132,22 +137,56 @@ function migrateV1(db) {
   db.exec("UPDATE jobs SET notes = ''");
 }
 
-// Bring the database at `db` (opened from `dbPath`) to SCHEMA_VERSION.
-// Returns {from, to, backup} where backup is the copy's path for a v1 migration.
-export function migrate(db, dbPath) {
-  const from = db.pragma("user_version", { simple: true });
-  if (from >= SCHEMA_VERSION) return { from, to: from, backup: null };
+// v2 → v3. linkedin_id is UNIQUE, so SQLite can't DROP COLUMN it: rebuild the table
+// with every other column, then canonicalize the posting URLs.
+function migrateV2(db) {
+  db.exec(jobsTable("jobs_v3"));
+  const names = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  const old = new Set(names("jobs"));
+  const cols = names("jobs_v3").filter((c) => old.has(c)).join(", ");
+  db.exec(`
+    INSERT INTO jobs_v3 (${cols}) SELECT ${cols} FROM jobs;
+    DROP TABLE jobs;
+    ALTER TABLE jobs_v3 RENAME TO jobs;
+  `);
+  db.exec(JOBS_INDEXES);
 
-  const isV1 = from === 0 && hasTable(db, "jobs");
-  const backupPath = isV1 ? backup(db, dbPath) : null;
-  db.transaction(() => {
-    if (isV1) {
-      migrateV1(db);
-    } else {
-      db.exec(JOBS_V2);
-      db.exec(COMMON_V2);
-    }
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
-  })();
-  return { from: isV1 ? 1 : 0, to: SCHEMA_VERSION, backup: backupPath };
+  const setUrl = db.prepare("UPDATE jobs SET url=? WHERE id=?");
+  for (const { id, url } of db.prepare("SELECT id, url FROM jobs WHERE url IS NOT NULL").all()) {
+    const canon = postingUrl(url);
+    if (canon !== url) setUrl.run(canon, id);
+  }
+}
+
+// Bring the database at `db` (opened from `dbPath`) to SCHEMA_VERSION.
+// Returns {from, to, backup} where backup is the copy's path when an existing
+// database was migrated.
+export function migrate(db, dbPath) {
+  const version = db.pragma("user_version", { simple: true });
+  if (version >= SCHEMA_VERSION) return { from: version, to: version, backup: null };
+
+  const from = version === 0 && hasTable(db, "jobs") ? 1 : version;
+  const backupPath = from ? backup(db, dbPath, from) : null;
+  // The v3 rebuild drops `jobs`; with foreign keys on, that would cascade-delete every
+  // event and queue row. The pragma is a no-op inside a transaction, so set it here.
+  const fk = db.pragma("foreign_keys", { simple: true });
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      if (from === 0) {
+        db.exec(jobsTable("jobs"));
+        db.exec(JOBS_INDEXES);
+        db.exec(COMMON_V2);
+      } else {
+        if (from === 1) migrateV1(db);
+        migrateV2(db);
+      }
+      const broken = db.pragma("foreign_key_check");
+      if (broken.length) throw new Error(`migration broke ${broken.length} foreign key(s)`);
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    })();
+  } finally {
+    db.pragma(`foreign_keys = ${fk ? "ON" : "OFF"}`);
+  }
+  return { from, to: SCHEMA_VERSION, backup: backupPath };
 }
