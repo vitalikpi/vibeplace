@@ -1,7 +1,7 @@
 # Job Tracker
 
 A desktop app for a job search, laid out like a mail client. Postings come in through
-your own bookmarklets or through Claude Code over MCP. You triage them, Claude-in-Chrome
+your own bookmarklets, through Claude Code over MCP, or by hand (**＋ New job**). You triage them, Claude-in-Chrome
 agents prefill the application forms and hand them back to you, you submit, and Gmail
 evidence records the outcome. The full workflow is in [`job-flow.md`](job-flow.md).
 
@@ -57,7 +57,7 @@ Claude Code  ──► http://127.0.0.1:7085/mcp ────┘
 | Folder | Statuses | Who moves jobs here |
 |---|---|---|
 | ⏰ Waiting for me | `blocked`, `ready` | an agent hands the job back |
-| 📥 New | `new` | bookmarklet, MCP `add_job` |
+| 📥 New | `new` | bookmarklet, MCP `add_job`, you (**＋ New job**) |
 | ✓ Triaged | `triaged` | you or a triage agent |
 | ▶ In progress | `in_progress` | you (**Start** or **Unblock**); an agent then holds it |
 | ⏸ On hold | `on_hold` | you or an agent |

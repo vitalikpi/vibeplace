@@ -42,6 +42,10 @@ export function fakeTracker(jobs) {
       return { total: list.length, jobs: list };
     }),
     getJob: vi.fn(async (id) => jobs.find((j) => j.id === id) ?? null),
+    addJob: vi.fn(async (data) => {
+      jobs.push({ ...job({ id: 99, status: "new" }), ...data });
+      return { id: 99, created: true, duplicateCompany: false };
+    }),
     folderCounts: vi.fn(async () => ({ waiting: byFolder("waiting").length, new: byFolder("new").length })),
     transition: vi.fn(async (id, to) => ({ ...jobs.find((j) => j.id === id), status: to })),
     bulkTransition: vi.fn(async (ids) => ({ moved: ids, refused: [] })),

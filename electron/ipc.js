@@ -4,7 +4,7 @@
 import { ipcMain } from "electron";
 
 import * as db from "./db.js";
-import { isValidTrack, readSettings } from "./config.js";
+import { defaultTrack, isValidTrack, readSettings } from "./config.js";
 import { listBookmarklets } from "./bookmarklets.js";
 import { FOLDERS } from "./workflow.js";
 
@@ -54,6 +54,16 @@ export function registerIpc(isTrusted) {
   });
   handle("folders:counts", (track) => db.folderCounts({ track: optStr(track) }));
 
+  // A job the human typed in: same path as a bookmarklet capture (dedup by URL, blacklist).
+  handle("jobs:add", (data) => {
+    if (!isObject(data)) throw new Error("bad job");
+    const fields = {};
+    for (const k of ["url", "title", "company", "location", "description"]) fields[k] = typeof data[k] === "string" ? data[k].trim() : "";
+    if (!fields.url && !fields.title) throw new Error("missing url/title");
+    const track = "track" in data ? data.track ?? null : defaultTrack();
+    if (!isValidTrack(track)) throw new Error(`unknown track ${track}`);
+    return db.addJob({ ...fields, source: "manual" }, { ...HUMAN, track });
+  });
   handle("jobs:transition", (id, to, opts) => moveOne(id, to, opts));
   handle("jobs:bulkTransition", (ids, to, opts) => {
     if (!Array.isArray(ids) || !ids.length) throw new Error("no jobs selected");

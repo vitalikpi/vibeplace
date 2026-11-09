@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("tracker", {
   platform: process.platform,
   listJobs: invoke("jobs:list"),
   getJob: invoke("jobs:get"),
+  addJob: invoke("jobs:add"),
   folderCounts: invoke("folders:counts"),
   transition: invoke("jobs:transition"),
   bulkTransition: invoke("jobs:bulkTransition"),
