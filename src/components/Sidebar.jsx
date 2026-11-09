@@ -33,6 +33,17 @@ export default function Sidebar({ view, folder, counts, tracks, track, links, on
   return (
     <nav aria-label="Folders" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto py-3 pr-2">
       <h1 className="mb-2 px-4 text-lg font-bold tracking-tight">Job Tracker</h1>
+      <button
+        onClick={() => onView("new")}
+        aria-current={view === "new" ? "page" : undefined}
+        className={`mx-2 mb-2 rounded-2xl px-4 py-2.5 text-left text-sm font-semibold shadow-sm ${
+          view === "new"
+            ? "bg-blue-200 text-blue-900 dark:bg-blue-800 dark:text-blue-50"
+            : "bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-900"
+        }`}
+      >
+        ＋ New job
+      </button>
       {FOLDERS.map((f) => {
         const n = counts[f.key] || 0;
         const active = view === "list" && folder === f.key;

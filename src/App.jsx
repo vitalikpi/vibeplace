@@ -7,6 +7,7 @@ import JobList from "./components/JobList.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import StatsView from "./components/StatsView.jsx";
 import BookmarkletsView from "./components/BookmarkletsView.jsx";
+import NewJobView from "./components/NewJobView.jsx";
 import TerminalPanel from "./components/TerminalPanel.jsx";
 
 export const PAGE_SIZE = 50;
@@ -33,7 +34,7 @@ function remember(key, value) {
 // Data comes over IPC (api.js); main pushes a change after every write (UI, MCP,
 // bookmarklet), and the list, counts and open job reload from that.
 export default function App() {
-  const [view, setView] = useState("list"); // list | stats | bookmarklets
+  const [view, setView] = useState("list"); // list | new | stats | bookmarklets
   const [folder, setFolder] = useState("waiting");
   const [track, setTrack] = useState(null);
   const [q, setQ] = useState("");
@@ -186,6 +187,23 @@ export default function App() {
       return next;
     });
 
+  // Show a job typed into the New job form where it landed, opened. Not via run(): its
+  // reload would use the folder from before the switch; the folder change and the
+  // pushed change reload instead.
+  const addJob = async (data) => {
+    try {
+      const r = await api.addJob(data);
+      const job = await api.getJob(r.id);
+      if (job) setFolder(["blocked", "ready"].includes(job.status) ? "waiting" : job.status);
+      setView("list");
+      setOpenId(r.id);
+      const msg = r.created ? `Added #${r.id}` : `Already tracked — updated #${r.id}`;
+      flash(r.duplicateCompany ? `${msg} · already applied to this company` : msg);
+    } catch (e) {
+      flash(errText(e));
+    }
+  };
+
   const openFolder = (key) => {
     setView("list");
     setFolder(key);
@@ -234,6 +252,7 @@ export default function App() {
         <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-tl-2xl shadow-sm">
           {view === "stats" && <StatsView version={version} />}
           {view === "bookmarklets" && <BookmarkletsView />}
+          {view === "new" && <NewJobView tracks={settings.tracks} onCreate={addJob} onCancel={() => setView("list")} />}
           {view === "list" && (
             <>
               <JobList

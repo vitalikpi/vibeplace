@@ -17,6 +17,7 @@ async function call(fn) {
 
 export const listJobs = (opts) => call((t) => t.listJobs(opts));
 export const getJob = (id) => call((t) => t.getJob(id));
+export const addJob = (data) => call((t) => t.addJob(data));
 export const folderCounts = (track) => call((t) => t.folderCounts(track || null));
 export const transition = (id, to, opts) => call((t) => t.transition(id, to, opts));
 export const bulkTransition = (ids, to, opts) => call((t) => t.bulkTransition(ids, to, opts));

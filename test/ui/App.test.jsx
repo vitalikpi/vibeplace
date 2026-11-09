@@ -168,6 +168,32 @@ describe("App", () => {
     expect(JSON.parse(localStorage.getItem("termOpen"))).toBe(false);
   });
 
+  it("adds a job by hand and opens it in New", async () => {
+    render(<App />);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    const nav = screen.getByRole("navigation", { name: "Folders" });
+    await userEvent.click(within(nav).getByRole("button", { name: "＋ New job" }));
+    const form = screen.getByRole("region", { name: "New job" });
+    const add = within(form).getByRole("button", { name: "Add job" });
+    expect(add.disabled).toBe(true);
+    await userEvent.type(within(form).getByLabelText("Company"), "Delta");
+    await userEvent.type(within(form).getByLabelText("Title"), "Staff Engineer");
+    await userEvent.click(add);
+
+    expect(tracker.addJob).toHaveBeenCalledWith({
+      url: "",
+      company: "Delta",
+      title: "Staff Engineer",
+      location: "",
+      description: "",
+      track: "remote",
+    });
+    const pane = await screen.findByRole("complementary", { name: "Job details" });
+    expect(within(pane).getByText("Delta")).toBeTruthy();
+    await waitFor(() => expect(tracker.listJobs).toHaveBeenLastCalledWith(expect.objectContaining({ folder: "new" })));
+    expect(screen.getByRole("status").textContent).toBe("Added #99");
+  });
+
   it("labels the pane shortcut per platform and shows the shell the terminal runs", async () => {
     const nav = async () => {
       await waitFor(() => expect(rows()).toHaveLength(2));

@@ -31,6 +31,7 @@ describe("IPC bridge", () => {
         "account:reveal",
         "bookmarklets:list",
         "folders:counts",
+        "jobs:add",
         "jobs:addNote",
         "jobs:bulkTransition",
         "jobs:get",
@@ -90,6 +91,21 @@ describe("IPC bridge", () => {
     expect(out.moved).toEqual([a]);
     expect(out.refused).toMatchObject([{ id: b, reason: expect.stringMatching(/cannot move/) }]);
     expect(() => invoke("jobs:bulkTransition", [], "trash")).toThrow(/no jobs/);
+  });
+
+  it("jobs:add creates a job by hand in New, dedups by URL and validates input", () => {
+    const r = invoke("jobs:add", { url: ` ${POST(1)} `, title: "Eng", company: "Acme", bogus: "x" });
+    expect(r).toMatchObject({ created: true, duplicateCompany: false });
+    expect(db.getJob(r.id)).toMatchObject({ url: POST(1), title: "Eng", status: "new", source: "manual", track: "remote" });
+    expect(db.listEvents(r.id)[0]).toMatchObject({ actor: "human", to_status: "new", message: "captured" });
+
+    expect(invoke("jobs:add", { url: POST(1), title: "Eng II", track: "nyc" })).toMatchObject({ id: r.id, created: false });
+    expect(db.getJob(r.id).title).toBe("Eng II");
+    expect(db.getJob(invoke("jobs:add", { title: "No URL", track: null }).id).track).toBeNull();
+
+    expect(() => invoke("jobs:add", { company: "Acme" })).toThrow(/missing url\/title/);
+    expect(() => invoke("jobs:add", "x")).toThrow(/bad job/);
+    expect(() => invoke("jobs:add", { title: "x", track: "mars" })).toThrow(/unknown track/);
   });
 
   it("jobs:setFields validates the track against settings.json", () => {
