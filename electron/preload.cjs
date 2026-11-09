@@ -13,6 +13,8 @@ function subscribe(channel, cb) {
 }
 
 contextBridge.exposeInMainWorld("tracker", {
+  // "darwin" | "win32" | "linux": picks shortcut labels and terminal copy/paste keys.
+  platform: process.platform,
   listJobs: invoke("jobs:list"),
   getJob: invoke("jobs:get"),
   folderCounts: invoke("folders:counts"),

@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
+import { isMac, kbd, terminalKeyAction } from "../lib/platform.js";
+
 const MIN_HEIGHT = 120;
 
 // Claude Code in the data folder, in a pane under the tracker (electron/terminal.js
@@ -13,6 +15,7 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
   const termRef = useRef(null);
   const fitRef = useRef(null);
   const [status, setStatus] = useState("starting"); // starting | running | exited | unavailable
+  const [shellName, setShellName] = useState("");
   const bridge = window.tracker?.terminal;
 
   const start = async () => {
@@ -22,7 +25,8 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
     setStatus("starting");
     try {
       fitRef.current.fit();
-      await bridge.start(term.cols, term.rows);
+      const info = await bridge.start(term.cols, term.rows);
+      setShellName(info?.shell || "");
       setStatus("running");
       term.focus();
     } catch (e) {
@@ -37,7 +41,7 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
       return undefined;
     }
     const term = new Terminal({
-      fontFamily: "Menlo, Monaco, monospace",
+      fontFamily: "Menlo, Monaco, 'Cascadia Mono', Consolas, monospace",
       fontSize: 12,
       cursorBlink: true,
       macOptionIsMeta: true,
@@ -53,17 +57,19 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
     termRef.current = term;
     fitRef.current = fit;
 
-    // Cmd+C copies a selection; other Cmd/Ctrl+` combos go to the app menu and the
-    // pane toggle instead of the shell.
+    // Copy/paste keys per platform (lib/platform.js); app combos and the pane toggle
+    // stay out of the shell.
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== "keydown") return true;
-      if (e.metaKey && e.key === "c" && term.hasSelection()) {
+      const action = terminalKeyAction(e, { hasSelection: term.hasSelection() });
+      if (action === "copy") {
+        e.preventDefault();
         navigator.clipboard.writeText(term.getSelection());
-        return false;
+        if (!isMac()) term.clearSelection(); // so the next Ctrl+C interrupts
+      } else if (action === "paste") {
+        e.preventDefault();
+        navigator.clipboard.readText().then((t) => t && term.paste(t));
       }
-      if (e.metaKey) return false;
-      if (e.ctrlKey && e.key === "`") return false;
-      return true;
+      return action === "shell";
     });
 
     const offData = bridge.onData((d) => term.write(d));
@@ -135,13 +141,17 @@ export default function TerminalPanel({ open, height, onHeight, onClose }) {
       <div className="flex items-center gap-3 px-3 py-1 text-xs">
         <span className="font-semibold">⌨ Claude Code</span>
         <span className="text-slate-400">
-          {status === "running" ? "running in the data folder" : status === "unavailable" ? "only inside the app" : status}
+          {status === "running"
+            ? `running in the data folder${shellName ? ` (${shellName})` : ""}`
+            : status === "unavailable"
+              ? "only inside the app"
+              : status}
         </span>
         <span className="ml-auto flex gap-1">
           <button onClick={start} disabled={!bridge} className="rounded px-2 py-0.5 hover:bg-slate-700 disabled:opacity-40">
             Restart
           </button>
-          <button onClick={onClose} aria-label="Hide terminal" title="Hide (⌃`)" className="rounded px-2 py-0.5 hover:bg-slate-700">
+          <button onClick={onClose} aria-label="Hide terminal" title={`Hide (${kbd("ctrl+`")})`} className="rounded px-2 py-0.5 hover:bg-slate-700">
             ▾
           </button>
         </span>

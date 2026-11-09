@@ -167,4 +167,32 @@ describe("App", () => {
     expect(termBridge.stop).not.toHaveBeenCalled(); // hidden, not killed
     expect(JSON.parse(localStorage.getItem("termOpen"))).toBe(false);
   });
+
+  it("labels the pane shortcut per platform and shows the shell the terminal runs", async () => {
+    const nav = async () => {
+      await waitFor(() => expect(rows()).toHaveLength(2));
+      return within(screen.getByRole("navigation", { name: "Folders" })).getByRole("button", { name: /Claude Code/ });
+    };
+    tracker.platform = "darwin";
+    render(<App />);
+    expect((await nav()).textContent).toMatch(/⌃`$/);
+    cleanup();
+
+    tracker.platform = "win32";
+    tracker.terminal = {
+      start: vi.fn(async () => ({ pid: 1, cwd: "C:\\data", shell: "PowerShell" })),
+      write: vi.fn(async () => {}),
+      resize: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      onData: vi.fn(() => () => {}),
+      onExit: vi.fn(() => () => {}),
+    };
+    render(<App />);
+    const button = await nav();
+    expect(button.textContent).toMatch(/Ctrl\+`$/);
+    await userEvent.click(button);
+    const pane = await screen.findByRole("region", { name: "Claude Code terminal" });
+    expect(await within(pane).findByText("running in the data folder (PowerShell)")).toBeTruthy();
+    expect(within(pane).getByRole("button", { name: "Hide terminal" }).title).toBe("Hide (Ctrl+`)");
+  });
 });

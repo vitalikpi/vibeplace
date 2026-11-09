@@ -11,9 +11,19 @@ evidence records the outcome. The full workflow is in [`job-flow.md`](job-flow.m
 npm install              # also rebuilds native modules for Electron
 npm run electron:dev     # Vite on :5173 with hot reload + Electron
 npm run electron:start   # build the UI, run the app
-npm run dist             # build release/Job Tracker-<version>-arm64.dmg (unsigned)
+npm run dist:mac         # build release/Job Tracker-<version>-arm64.dmg (unsigned; `dist` = this)
+npm run dist:win         # on Windows: build release/Job Tracker Setup <version>.exe (unsigned)
 npm test                 # unit + UI tests (Vitest); npm run test:watch to rerun on change
 ```
+
+### Windows
+
+Install Node 20+ and [Git for Windows](https://git-scm.com/download/win). Git isn't
+strictly needed, but it gives the terminal Git Bash, and Claude Code on Windows wants it
+anyway. The commands above work as they are in cmd, PowerShell or Git Bash. Build the
+`.exe` on Windows: node-pty and better-sqlite3 are native modules, so a build from a Mac
+would carry the wrong binaries. The installer is unsigned, so SmartScreen asks first
+(**More info → Run anyway**).
 
 Tests live in `test/` (UI tests in `test/ui/`, on jsdom). They use in-memory SQLite,
 temporary data folders, a fixed time zone (`America/New_York`) and a mocked `electron`
@@ -32,13 +42,15 @@ Claude Code  ──► http://127.0.0.1:7085/mcp ────┘
   data only through the preload bridge (`electron/preload.cjs` → `electron/ipc.js`), so
   none of the tracker's data is readable over the network.
 - **Live:** every write (UI, MCP, bookmarklet) goes through the main process, which pushes
-  a change to the window, keeps the dock badge at the "Waiting for me" count, and shows a
+  a change to the window, keeps the dock badge (the window title on Windows) at the
+  "Waiting for me" count, and shows a
   notification when an agent hands a job back.
 - **HTTP server:** on `127.0.0.1:7085` ("J0B5"; set `PORT` to override). It has only the
   ingestion routes and MCP. Every request must carry `Host: 127.0.0.1:<port>` or
   `localhost:<port>`, which blocks DNS rebinding.
 - **Lifecycle:** on macOS, closing the window leaves the server running. Cmd+Q stops it
-  once in-flight requests finish.
+  once in-flight requests finish. On Windows, closing the window (or File ▸ Exit) quits
+  the app and the server with it.
 
 ## Workflow
 
@@ -64,17 +76,29 @@ Shortcuts: `j`/`k` move, `Enter` opens, `x` selects, `e` trashes, `s` starts, `h
 
 ## Claude Code pane
 
-**⌃`** (or **⌨ Claude Code** in the sidebar) opens a terminal under the tracker, running
-Claude Code in the data folder. It uses your login shell (so `claude` is on PATH), and
-picks up that folder's `.mcp.json`, skills and `ANSWERS.md`. With the tracker on one half
+**Ctrl+`** (or **⌨ Claude Code** in the sidebar) opens a terminal under the tracker,
+running Claude Code in the data folder. On macOS it uses your login shell (so `claude` is
+on PATH). On Windows, pick **Git Bash**, **PowerShell** or **Command Prompt** under
+**Terminal ▸ Shell**. The default is Git Bash if it's installed (found through
+`CLAUDE_CODE_GIT_BASH_PATH`, the usual install folders, or `git.exe` on PATH), else
+PowerShell (`pwsh` 7 if it's on PATH). The pick is saved per machine and applies on the
+next **Restart**. Claude Code picks up that folder's `.mcp.json`, skills and `ANSWERS.md`. With the tracker on one half
 of the screen and Chrome on the other, the apply loop runs right here. When Claude
 exits, the pane stays a normal shell. Hiding the pane keeps the session; **Restart**
 starts a fresh one, and changing the data folder or quitting the app ends it.
 
+| | macOS | Windows |
+|---|---|---|
+| Show / hide the pane | ⌃` | Ctrl+` |
+| Copy the selection | ⌘C | Ctrl+C (with a selection) or Ctrl+Shift+C |
+| Paste | ⌘V | Ctrl+V or Ctrl+Shift+V |
+| Interrupt | ⌃C | Ctrl+C (without a selection) |
+
 The shell runs in the main process through `node-pty` (`electron/terminal.js`), drawn by
 xterm.js in the window. Like the rest of the UI, it's reachable over IPC only, never over
-HTTP. `npm install` makes node-pty's `spawn-helper` executable (`postinstall`), and the
-packaged app keeps it outside the asar archive.
+HTTP. `npm install` makes node-pty's `spawn-helper` executable on macOS/Linux
+(`scripts/postinstall.js`), and the packaged app keeps node-pty's native files (including
+the Windows ConPTY/winpty binaries) outside the asar archive.
 
 ## Data folder
 
