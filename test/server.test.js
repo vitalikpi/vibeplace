@@ -79,9 +79,9 @@ describe("capture pages", () => {
 });
 
 describe("POST /api/act (✅ Unblocked / ✅ Submitted)", () => {
-  const LI = (n) => `https://www.linkedin.com/jobs/view/${n}/`;
+  const POST = (n) => `https://jobs.example.com/${n}`;
   function blockedJob(n = 1) {
-    const { id } = db.addJob({ url: LI(n), title: "t" });
+    const { id } = db.addJob({ url: POST(n), title: "t" });
     db.transition(id, "triaged", { actor: "human" });
     db.transition(id, "in_progress", { actor: "human" });
     db.queueNext("agent:a");
@@ -133,7 +133,7 @@ describe("POST /api/act (✅ Unblocked / ✅ Submitted)", () => {
   });
 
   it("answers 409 with the reason when the move isn't allowed", async () => {
-    const { id } = db.addJob({ url: LI(5), title: "t" });
+    const { id } = db.addJob({ url: POST(5), title: "t" });
     const res = await act({ op: "unblock", job_id: id }).expect(409);
     expect(res.body).toMatchObject({ job_id: id, status: "new", error: expect.stringMatching(/cannot move/) });
   });

@@ -125,7 +125,7 @@ same company is already triaged or further along.`,
 
   tool(
     "add_job",
-    "Add a job (or refresh the one with the same LinkedIn id / URL). New jobs land in 'new'. Returns {id, duplicateCompany, created}.",
+    "Add a job (or refresh the one with the same posting URL; board tracking params are ignored). New jobs land in 'new'. Returns {id, duplicateCompany, created}.",
     {
       url: z.string(),
       title: z.string().default(""),
@@ -276,7 +276,7 @@ one comes back with created=false; otherwise a strong password is generated and 
 the record comes back with created=true and the plaintext password to type into the
 Create-Account / Sign-In form (the one password-entry exception). Pass job_id to link the
 account to that job (a timeline event, no password), so the human sees it on the job.
-email defaults to "email" in settings.json; ats is inferred from the tenant if omitted.`,
+email defaults to "email" in settings.json; pass ats (e.g. 'workday'), else it is stored as 'other'.`,
     {
       tenant: z.string(),
       employer: z.string().default(""),

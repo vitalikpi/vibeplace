@@ -7,7 +7,7 @@ export function job(overrides = {}) {
     company: "Acme",
     title: "Senior Engineer",
     location: "Remote",
-    url: "https://www.linkedin.com/jobs/view/1/",
+    url: "https://jobs.example.com/1",
     apply_url: null,
     ats: null,
     track: null,
