@@ -18,9 +18,8 @@ npm test                 # unit + UI tests (Vitest); npm run test:watch to rerun
 
 ### Windows
 
-Install Node 20+ and [Git for Windows](https://git-scm.com/download/win). Git isn't
-strictly needed, but it gives the terminal Git Bash, and Claude Code on Windows wants it
-anyway. The commands above work as they are in cmd, PowerShell or Git Bash. Build the
+Install Node 20+ and [Git for Windows](https://git-scm.com/download/win). Git is
+optional: it adds Git Bash as a terminal choice (and Claude Code on Windows wants it). The commands above work as they are in cmd, PowerShell or Git Bash. Build the
 `.exe` on Windows: node-pty and better-sqlite3 are native modules, so a build from a Mac
 would carry the wrong binaries. The installer is unsigned, so SmartScreen asks first
 (**More info → Run anyway**).
@@ -74,18 +73,17 @@ stay in the job's **notes** field, which agents never write.
 Shortcuts: `j`/`k` move, `Enter` opens, `x` selects, `e` trashes, `s` starts, `h` holds,
 `/` searches, `Esc` closes. With a selection they apply to the whole selection.
 
-## Claude Code pane
+## Terminal pane
 
-**Ctrl+`** (or **⌨ Claude Code** in the sidebar) opens a terminal under the tracker,
-running Claude Code in the data folder. On macOS it uses your login shell (so `claude` is
-on PATH). On Windows, pick **Git Bash**, **PowerShell** or **Command Prompt** under
-**Terminal ▸ Shell**. The default is Git Bash if it's installed (found through
-`CLAUDE_CODE_GIT_BASH_PATH`, the usual install folders, or `git.exe` on PATH), else
-PowerShell (`pwsh` 7 if it's on PATH). The pick is saved per machine and applies on the
-next **Restart**. Claude Code picks up that folder's `.mcp.json`, skills and `ANSWERS.md`. With the tracker on one half
-of the screen and Chrome on the other, the apply loop runs right here. When Claude
-exits, the pane stays a normal shell. Hiding the pane keeps the session; **Restart**
-starts a fresh one, and changing the data folder or quitting the app ends it.
+**Ctrl+`** (or **⌨ Terminal** in the sidebar) opens a plain shell under the tracker, in
+the data folder. On macOS it's your login shell (zsh by default). On Windows it's
+PowerShell (`pwsh` 7 if it's on PATH) by default; **Git Bash** (found through
+`CLAUDE_CODE_GIT_BASH_PATH`, the usual install folders, or `git.exe` on PATH) and
+**Command Prompt** can be picked under **Terminal ▸ Shell**. The pick is saved per machine
+and applies on the next **Restart**. Run `claude` (or any agent) there yourself and it
+picks up the folder's `.mcp.json`, skills and `ANSWERS.md`. Hiding the pane keeps the
+session; **Restart** starts a fresh one, and changing the data folder or quitting the app
+ends it.
 
 | | macOS | Windows |
 |---|---|---|

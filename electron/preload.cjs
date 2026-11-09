@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld("tracker", {
   statsDaily: invoke("stats:daily"),
   bookmarklets: invoke("bookmarklets:list"),
   settings: invoke("settings:get"),
-  // The embedded terminal (Claude Code in the data folder; see electron/terminal.js).
+  // The embedded terminal (a shell in the data folder; see electron/terminal.js).
   terminal: {
     start: invoke("term:start"),
     write: invoke("term:write"),

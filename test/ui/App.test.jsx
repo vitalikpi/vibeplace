@@ -137,7 +137,7 @@ describe("App", () => {
     expect(tracker.folderCounts).toHaveBeenLastCalledWith("remote");
   });
 
-  it("toggles the Claude Code pane with ⌃` and the sidebar, keeping the session while hidden", async () => {
+  it("toggles the terminal pane with ⌃` and the sidebar, keeping the session while hidden", async () => {
     const termBridge = {
       start: vi.fn(async () => ({ pid: 1, cwd: "/data" })),
       write: vi.fn(async () => {}),
@@ -149,20 +149,20 @@ describe("App", () => {
     tracker.terminal = termBridge;
     render(<App />);
     await waitFor(() => expect(rows()).toHaveLength(2));
-    expect(screen.queryByRole("region", { name: "Claude Code terminal" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Terminal" })).toBeNull();
 
     await userEvent.keyboard("{Control>}`{/Control}");
-    const pane = await screen.findByRole("region", { name: "Claude Code terminal" });
+    const pane = await screen.findByRole("region", { name: "Terminal" });
     await waitFor(() => expect(termBridge.start).toHaveBeenCalledWith(90, 20));
     expect(await within(pane).findByText("running in the data folder")).toBeTruthy();
 
-    terms[0].input("claude\r"); // typing goes to the shell
-    expect(termBridge.write).toHaveBeenCalledWith("claude\r");
+    terms[0].input("ls\r"); // typing goes to the shell
+    expect(termBridge.write).toHaveBeenCalledWith("ls\r");
     act(() => termBridge.emit("hi"));
     expect(terms[0].written).toContain("hi");
 
     const nav = screen.getByRole("navigation", { name: "Folders" });
-    await userEvent.click(within(nav).getByRole("button", { name: /Claude Code/ }));
+    await userEvent.click(within(nav).getByRole("button", { name: /Terminal/ }));
     expect(pane.className).toMatch(/\bhidden\b/);
     expect(termBridge.stop).not.toHaveBeenCalled(); // hidden, not killed
     expect(JSON.parse(localStorage.getItem("termOpen"))).toBe(false);
@@ -171,7 +171,7 @@ describe("App", () => {
   it("labels the pane shortcut per platform and shows the shell the terminal runs", async () => {
     const nav = async () => {
       await waitFor(() => expect(rows()).toHaveLength(2));
-      return within(screen.getByRole("navigation", { name: "Folders" })).getByRole("button", { name: /Claude Code/ });
+      return within(screen.getByRole("navigation", { name: "Folders" })).getByRole("button", { name: /Terminal/ });
     };
     tracker.platform = "darwin";
     render(<App />);
@@ -191,7 +191,7 @@ describe("App", () => {
     const button = await nav();
     expect(button.textContent).toMatch(/Ctrl\+`$/);
     await userEvent.click(button);
-    const pane = await screen.findByRole("region", { name: "Claude Code terminal" });
+    const pane = await screen.findByRole("region", { name: "Terminal" });
     expect(await within(pane).findByText("running in the data folder (PowerShell)")).toBeTruthy();
     expect(within(pane).getByRole("button", { name: "Hide terminal" }).title).toBe("Hide (Ctrl+`)");
   });

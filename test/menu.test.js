@@ -6,8 +6,8 @@ vi.mock("node-pty", () => ({ default: { spawn: vi.fn() } }));
 const { menuTemplate } = await import("../electron/menu.js");
 
 const SHELLS = [
-  { id: "gitbash", label: "Git Bash", file: null, kind: "posix", found: false },
   { id: "powershell", label: "PowerShell", file: "powershell.exe", kind: "powershell", found: true },
+  { id: "gitbash", label: "Git Bash", file: null, kind: "posix", found: false },
   { id: "cmd", label: "Command Prompt", file: "cmd.exe", kind: "cmd", found: true },
 ];
 const handlers = () => ({ changeDataFolder: vi.fn(), showDataFolder: vi.fn(), setShell: vi.fn() });
@@ -39,8 +39,8 @@ describe("application menu", () => {
 
   it("lists the shells as radios: the resolved one checked, missing ones disabled", () => {
     expect(shellItems(menu("win32", "cmd")).map((i) => [i.label, i.enabled, i.checked])).toEqual([
-      ["Git Bash (not found)", false, false],
       ["PowerShell", true, false],
+      ["Git Bash (not found)", false, false],
       ["Command Prompt", true, true],
     ]);
     // A saved choice that isn't installed falls back like the terminal does.

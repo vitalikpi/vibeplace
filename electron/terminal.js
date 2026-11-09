@@ -1,8 +1,6 @@
-// The embedded terminal: one pseudo-terminal running a shell in the data folder, with
-// Claude Code started in it. Claude then picks up the folder's .mcp.json (this app's
-// MCP), skills and ANSWERS.md. When Claude exits, the same terminal drops into the
-// shell, so it can be restarted by hand. macOS/Linux use the login shell; Windows uses
-// Git Bash, PowerShell or cmd (the user's pick in Terminal ▸ Shell, saved by main.js).
+// The embedded terminal: one pseudo-terminal running a plain interactive shell in the
+// data folder. macOS/Linux use the login shell; Windows uses PowerShell, Git Bash or cmd
+// (the user's pick in Terminal ▸ Shell, saved by main.js; PowerShell by default).
 //
 // IPC (behind the same trusted-page check as ipc.js):
 //   term:start(cols, rows) → {pid, cwd, shell}   (re)starts the session
@@ -36,7 +34,8 @@ export function detectShells({ platform = process.platform, env = process.env, e
   const sysRoot = envGet(env, "SystemRoot") || "C:\\Windows";
   const under = (base, ...rest) => (base ? w.join(base, ...rest) : null);
 
-  // Git for Windows' bash, never System32\bash.exe (that's the WSL launcher).
+  // Git for Windows' bash (CLAUDE_CODE_GIT_BASH_PATH is honored if set), never
+  // System32\bash.exe (that's the WSL launcher).
   const gitBash = [
     envGet(env, "CLAUDE_CODE_GIT_BASH_PATH"),
     under(envGet(env, "ProgramFiles"), "Git", "bin", "bash.exe"),
@@ -48,8 +47,8 @@ export function detectShells({ platform = process.platform, env = process.env, e
   const cmd = envGet(env, "ComSpec") || w.join(sysRoot, "System32", "cmd.exe");
 
   return [
-    { id: "gitbash", label: "Git Bash", file: gitBash || null, kind: "posix", found: Boolean(gitBash) },
     { id: "powershell", label: "PowerShell", file: powershell, kind: "powershell", found: exists(powershell) },
+    { id: "gitbash", label: "Git Bash", file: gitBash || null, kind: "posix", found: Boolean(gitBash) },
     { id: "cmd", label: "Command Prompt", file: cmd, kind: "cmd", found: exists(cmd) },
   ];
 }
@@ -60,13 +59,12 @@ export function resolveShell(choice, shells) {
   return found.find((s) => s.id === choice) || found[0] || null;
 }
 
-// Run Claude Code first, then stay as an interactive shell. A posix shell starts as a
-// login shell (so PATH matches the user's terminal and `claude` is found) and gets its
-// own path as $0, so the exec survives spaces (C:\Program Files\Git\…).
+// An interactive shell. A posix shell starts as a login shell, so PATH matches the
+// user's own terminal.
 export function shellCommand(shell) {
-  if (shell.kind === "powershell") return { file: shell.file, args: ["-NoLogo", "-NoExit", "-Command", "claude"] };
-  if (shell.kind === "cmd") return { file: shell.file, args: ["/k", "claude"] };
-  return { file: shell.file, args: ["-l", "-i", "-c", 'claude; exec "$0" -l -i', shell.file] };
+  if (shell.kind === "powershell") return { file: shell.file, args: ["-NoLogo"] };
+  if (shell.kind === "cmd") return { file: shell.file, args: [] };
+  return { file: shell.file, args: ["-l", "-i"] };
 }
 
 // The app's environment minus what only makes sense for Electron itself.
@@ -96,7 +94,7 @@ function startTerminal(sender, cols, rows, { shellChoice, detect }) {
   stopTerminal();
   const cwd = getPaths().DATA_ROOT || os.homedir();
   const shell = resolveShell(shellChoice(), detect());
-  if (!shell) throw new Error("no shell found (install Git for Windows, or check PowerShell / cmd)");
+  if (!shell) throw new Error("no shell found (install check PowerShell / cmd, or install Git for Windows)");
   const { file, args } = shellCommand(shell);
   const proc = pty.spawn(file, args, {
     name: "xterm-256color",
