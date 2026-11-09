@@ -151,10 +151,10 @@ describe("capture + triage", () => {
 });
 
 describe("the apply loop", () => {
-  it("runs start → blocked → (human unblock) → ready, with leases and the answers", async () => {
+  it("runs start → blocked (with a message) → (human unblock) → ready, with leases", async () => {
     const id = started();
     const work = await value("queue_next", { agent: "apply-1" });
-    expect(work.message).toMatchObject({ kind: "start", payload: null });
+    expect(work.message).toMatchObject({ kind: "start" });
     expect(work.job).toMatchObject({ id, owner: "agent:apply-1" });
     expect(await value("queue_next", { agent: "apply-2" })).toBeNull();
 
@@ -169,16 +169,13 @@ describe("the apply loop", () => {
     });
     expect(db.getJob(id)).toMatchObject({ step: "workday:4/7", tab_id: 1234, ats: "workday" });
 
-    const blocked = await value("mark_blocked", {
-      job_id: id,
-      agent: "apply-1",
-      needs: [{ type: "question", text: "Java level", q: "Java level 1–3" }],
-    });
-    expect(blocked).toMatchObject({ status: "blocked", owner: null, needs: [{ id: "n1", type: "question" }] });
+    const blocked = await value("mark_blocked", { job_id: id, agent: "apply-1", message: "Accept the privacy consent" });
+    expect(blocked).toMatchObject({ status: "blocked", owner: null });
+    expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "agent:apply-1", to_status: "blocked", message: "Accept the privacy consent" });
 
-    db.transition(id, "in_progress", { actor: "human", data: { answers: { n1: "3" } } });
+    db.transition(id, "in_progress", { actor: "human" });
     const resume = await value("queue_next", { agent: "apply-2" });
-    expect(resume.message).toMatchObject({ kind: "unblock", payload: { n1: "3" } });
+    expect(resume.message).toMatchObject({ kind: "unblock" });
 
     expect(await value("mark_ready", { job_id: id, agent: "apply-2", message: "all filled" })).toMatchObject({ status: "ready" });
     expect(db.getJob(id).owner).toBeNull();
@@ -259,9 +256,10 @@ describe("accounts", () => {
     expect(rec).toMatchObject({ tenant: "jobs.dayforcehcm.com/acme", ats: "dayforce", created: true });
     expect(db.accountForJob(db.getJob(id))).toMatchObject({ id: rec.id });
     await value("create_account", { tenant: "jobs.dayforcehcm.com/acme", job_id: id, agent: "apply-1" });
-    const linked = db.listEvents(id).filter((e) => e.data?.account);
+    expect(db.getJob(id).account_tenant).toBe("jobs.dayforcehcm.com/acme");
+    const linked = db.listEvents(id).filter((e) => /account for/.test(e.message || ""));
     expect(linked).toHaveLength(1);
-    expect(linked[0]).toMatchObject({ actor: "agent:apply-1", data: { account: "jobs.dayforcehcm.com/acme" } });
+    expect(linked[0]).toMatchObject({ actor: "agent:apply-1" });
     expect(JSON.stringify(db.listEvents(id))).not.toContain(rec.password);
   });
 
@@ -274,7 +272,6 @@ describe("accounts", () => {
 describe("argument validation", () => {
   it("rejects arguments of the wrong type", async () => {
     expect((await call("get_job", { job_id: "seven" })).isError).toBe(true);
-    expect((await call("mark_blocked", { job_id: 1, agent: "a", needs: [] })).isError).toBe(true);
-    expect((await call("mark_blocked", { job_id: 1, agent: "a", needs: [{ type: "lunch", text: "x" }] })).isError).toBe(true);
+    expect((await call("mark_blocked", { job_id: 1, agent: "a", message: 42 })).isError).toBe(true);
   });
 });

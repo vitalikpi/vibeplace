@@ -7,7 +7,7 @@
 // moves. Agents never Start, Unblock or mark a job applied: those are the human's.
 //
 //   triage:    list_jobs(status="new", include_body=True) → triage_job(go | no_go)
-//   apply:     queue_next → update_progress … → mark_blocked(needs) | mark_ready | hold_job
+//   apply:     queue_next → update_progress … → mark_blocked(message?) | mark_ready | hold_job
 //              (release_job on an error stop)
 //   outcomes:  record_outcome (Gmail evidence); add_event for anything else
 import fs from "node:fs";
@@ -59,12 +59,6 @@ const agentName = z.string().min(1).describe("Your agent name, e.g. 'apply-3'. R
 const actorOf = (name) => `agent:${name}`;
 const jobId = z.number().int();
 const optStr = z.string().optional();
-const need = z.object({
-  type: z.enum(db.NEED_TYPES),
-  text: z.string().describe("What the human has to do, shown in the app"),
-  q: z.string().optional().describe("For type 'question': the question to answer"),
-  answers_ref: z.number().int().optional().describe("Reference into ANSWERS.md, if any"),
-});
 
 function mustExist(id) {
   if (!db.getJob(id)) throw new db.TransitionError(`job ${id} not found`, { code: "not_found" });
@@ -99,14 +93,14 @@ same company is already triaged or further along.`,
 
   tool(
     "get_job",
-    "One job's full record (complete description, needs, apply_url, step, tab_id, owner) plus its event timeline, or null.",
+    "One job's full record (complete description, apply_url, step, tab_id, owner) plus its event timeline, or null.",
     { job_id: jobId },
     ({ job_id }) => db.getJobDetail(job_id)
   );
 
   tool(
     "attention",
-    "Jobs waiting for the human (blocked or ready), longest-waiting first, with needs, tab_id and apply_url.",
+    "Jobs waiting for the human (blocked or ready), longest-waiting first, with tab_id, apply_url and the latest timeline message.",
     {},
     () => db.attention()
   );
@@ -167,7 +161,8 @@ same company is already triaged or further along.`,
 
   tool(
     "queue_next",
-    `Take the next piece of work: {message: {kind: 'start' | 'unblock', payload: answers}, job} or null.
+    `Take the next piece of work: {message: {kind: 'start' | 'unblock'}, job} or null. 'unblock'
+means the human has dealt with what you asked for when you marked it blocked (see the timeline).
 The job is leased to you (lease_minutes); no other agent gets it until you finish, release
 it, or the lease runs out. Jobs with a pending referral are skipped.`,
     { agent: agentName, lease_minutes: z.number().int().min(1).max(240).default(30) },
@@ -199,11 +194,11 @@ it, or the lease runs out. Jobs with a pending referral are skipped.`,
 
   tool(
     "mark_blocked",
-    "Hand a job you hold back to the human: in_progress → blocked with the list of things they must do. Releases your lease.",
-    { job_id: jobId, agent: agentName, needs: z.array(need).min(1), message: optStr },
-    ({ job_id, agent, needs, message }) => {
+    "Hand a job you hold back to the human: in_progress → blocked, with an optional short message saying what you need from them. Releases your lease.",
+    { job_id: jobId, agent: agentName, message: optStr },
+    ({ job_id, agent, message }) => {
       db.assertOwner(job_id, actorOf(agent));
-      return db.transition(job_id, "blocked", { actor: actorOf(agent), message: message || null, data: { needs } });
+      return db.transition(job_id, "blocked", { actor: actorOf(agent), message: message || null });
     }
   );
 
@@ -275,7 +270,7 @@ add the path part that names the employer (e.g. 'jobs.dayforcehcm.com/acme'). An
 one comes back with created=false; otherwise a strong password is generated and stored, and
 the record comes back with created=true and the plaintext password to type into the
 Create-Account / Sign-In form (the one password-entry exception). Pass job_id to link the
-account to that job (a timeline event, no password), so the human sees it on the job.
+account to that job (plus a timeline note, no password), so the human sees it on the job.
 email defaults to "email" in settings.json; pass ats (e.g. 'workday'), else it is stored as 'other'.`,
     {
       tenant: z.string(),
@@ -301,10 +296,11 @@ email defaults to "email" in settings.json; pass ats (e.g. 'workday'), else it i
             created: true,
           };
       if (job_id != null && db.accountForJob(db.getJob(job_id))?.id !== rec.id) {
+        const actor = actorOf(agent);
+        db.setJobFields(job_id, { account_tenant: rec.tenant }, { actor });
         db.addEvent(job_id, {
-          actor: actorOf(agent),
+          actor,
           message: `${rec.created ? "Created" : "Using"} the ${rec.ats} account for ${rec.tenant} (${rec.email})`,
-          data: { account: rec.tenant },
         });
       }
       return rec;

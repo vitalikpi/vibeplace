@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { STATUSES, STATUS_LABELS } from "../workflow.js";
 import { humanActions } from "../lib/actions.js";
 import { fullTime, safeHref } from "../lib/format.js";
-import NeedsList from "./NeedsList.jsx";
 import Timeline from "./Timeline.jsx";
 
 const field = "w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800";
@@ -37,9 +36,9 @@ function Link({ href, children }) {
   );
 }
 
-// The reading pane: header, actions, the agent's needs, editable fields, notes, the
-// account for this employer and the timeline.
-export default function JobDetail({ job, tracks, onTransition, onSetFields, onResolveNeed, onAddNote, onReveal, onClose }) {
+// The reading pane: header, actions, editable fields, notes, the account for this
+// employer and the timeline.
+export default function JobDetail({ job, tracks, onTransition, onSetFields, onAddNote, onReveal, onClose }) {
   const [notes, setNotes] = useState(job.notes || "");
   const [note, setNote] = useState("");
   const [moveTo, setMoveTo] = useState("");
@@ -51,7 +50,7 @@ export default function JobDetail({ job, tracks, onTransition, onSetFields, onRe
     setMoveTo("");
   }, [job.id, job.notes]);
 
-  const actions = humanActions(job.status).filter((a) => !(job.status === "blocked" && a.to === "in_progress"));
+  const actions = humanActions(job.status);
   const trackOptions = [...tracks];
   if (job.track && !tracks.some((t) => t.key === job.track)) trackOptions.push({ key: job.track, label: job.track });
   const leaseLive = job.owner && job.lease_until && new Date(job.lease_until) > new Date();
@@ -123,9 +122,6 @@ export default function JobDetail({ job, tracks, onTransition, onSetFields, onRe
       </header>
 
       <div className="space-y-5 p-4">
-        {job.status === "blocked" && (
-          <NeedsList needs={job.needs} onResolve={onResolveNeed} onUnblock={(answers) => onTransition("in_progress", { answers })} />
-        )}
         {job.status === "ready" && (
           <p className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-700 dark:bg-emerald-950/30">
             🟢 The form is filled. Review it in the browser and press Submit yourself, then mark it <strong>Submitted ✓</strong>.

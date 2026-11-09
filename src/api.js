@@ -21,7 +21,6 @@ export const folderCounts = (track) => call((t) => t.folderCounts(track || null)
 export const transition = (id, to, opts) => call((t) => t.transition(id, to, opts));
 export const bulkTransition = (ids, to, opts) => call((t) => t.bulkTransition(ids, to, opts));
 export const setFields = (id, fields) => call((t) => t.setFields(id, fields));
-export const resolveNeed = (id, needId) => call((t) => t.resolveNeed(id, needId));
 export const addNote = (id, message) => call((t) => t.addNote(id, message));
 export const revealPassword = (id) => call((t) => t.revealPassword(id));
 export const getStats = () => call((t) => t.stats());

@@ -21,7 +21,6 @@ contextBridge.exposeInMainWorld("tracker", {
   transition: invoke("jobs:transition"),
   bulkTransition: invoke("jobs:bulkTransition"),
   setFields: invoke("jobs:setFields"),
-  resolveNeed: invoke("jobs:resolveNeed"),
   addNote: invoke("jobs:addNote"),
   revealPassword: invoke("account:reveal"),
   stats: invoke("stats:get"),

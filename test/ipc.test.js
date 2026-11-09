@@ -35,7 +35,6 @@ describe("IPC bridge", () => {
         "jobs:bulkTransition",
         "jobs:get",
         "jobs:list",
-        "jobs:resolveNeed",
         "jobs:setFields",
         "jobs:transition",
         "settings:get",
@@ -74,7 +73,7 @@ describe("IPC bridge", () => {
     expect(() => invoke("jobs:get", "1")).toThrow(/bad job id/);
   });
 
-  it("jobs:transition acts as the human, passing message, answers and override", () => {
+  it("jobs:transition acts as the human, passing message and override", () => {
     const { id } = db.addJob({ url: POST(1), title: "t" });
     expect(invoke("jobs:transition", id, "triaged", { message: "looks good" })).toMatchObject({ status: "triaged" });
     expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "human", message: "looks good" });
@@ -101,13 +100,8 @@ describe("IPC bridge", () => {
     expect(() => invoke("jobs:setFields", id, { title: "x" })).toThrow(/no valid fields/);
   });
 
-  it("jobs:resolveNeed and jobs:addNote", () => {
+  it("jobs:addNote", () => {
     const { id } = db.addJob({ url: POST(1), title: "t" });
-    db.transition(id, "triaged", { actor: "human" });
-    db.transition(id, "in_progress", { actor: "human" });
-    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }] } });
-    expect(invoke("jobs:resolveNeed", id, "n1")).toEqual([]);
-    expect(() => invoke("jobs:resolveNeed", id, "n1")).toThrow(/need not found/);
     expect(invoke("jobs:addNote", id, "called the recruiter")).toMatchObject({ actor: "human", message: "called the recruiter" });
     expect(() => invoke("jobs:addNote", id, "")).toThrow(/empty note/);
   });

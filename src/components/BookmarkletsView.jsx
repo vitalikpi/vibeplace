@@ -15,7 +15,7 @@ export default function BookmarkletsView() {
       <Bookmarklet items={items} />
       <p className="mt-4 max-w-2xl text-xs text-slate-500">
         To report back from an application page, a bookmarklet opens <code>/act#&lt;JSON&gt;</code> with{" "}
-        <code>{'{"op": "unblock" | "submitted", "job_id"?, "url"?, "title"?, "answers"?}'}</code>. The job is found by id,
+        <code>{'{"op": "unblock" | "submitted", "job_id"?, "url"?, "title"?}'}</code>. The job is found by id,
         then by <code>#&lt;id&gt;</code> in the page title, then by the page URL.
       </p>
     </section>

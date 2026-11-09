@@ -262,7 +262,6 @@ export default function App() {
                   tracks={settings.tracks}
                   onTransition={(to, opts) => move([detail.id], to, opts)}
                   onSetFields={(fields) => run(() => api.setFields(detail.id, fields))}
-                  onResolveNeed={(needId) => run(() => api.resolveNeed(detail.id, needId))}
                   onAddNote={(message) => run(() => api.addNote(detail.id, message))}
                   onReveal={() => api.revealPassword(detail.id).catch((e) => (flash(errText(e)), null))}
                   onClose={() => setOpenId(null)}
