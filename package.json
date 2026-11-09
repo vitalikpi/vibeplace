@@ -9,10 +9,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && ELECTRON_DEV=1 electron .\"",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env ELECTRON_DEV=1 electron .\"",
     "electron:start": "vite build && electron .",
-    "dist": "vite build && electron-builder --mac dmg --arm64",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper && electron-builder install-app-deps",
+    "dist": "npm run dist:mac",
+    "dist:mac": "vite build && electron-builder --mac dmg --arm64",
+    "dist:win": "vite build && electron-builder --win nsis --x64",
+    "postinstall": "node scripts/postinstall.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -29,12 +31,14 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electron/windows-sign": "1.2.2",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.8",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "concurrently": "10.0.6",
+    "cross-env": "7.0.3",
     "electron": "45.2.3",
     "electron-builder": "26.18.0",
     "jsdom": "26.1.0",
@@ -55,7 +59,7 @@
     ],
     "asarUnpack": [
       "**/*.node",
-      "**/node-pty/prebuilds/*/spawn-helper"
+      "**/node-pty/prebuilds/**"
     ],
     "directories": {
       "output": "release"
@@ -63,6 +67,13 @@
     "mac": {
       "identity": null,
       "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

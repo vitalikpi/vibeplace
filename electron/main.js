@@ -2,10 +2,10 @@
 // 127.0.0.1:7085 (PORT overrides) and shows the tracker in a window. The UI is loaded
 // from disk and reaches the data over IPC only (preload.cjs → ipc.js). The server
 // lives as long as the app does (closing the window on macOS keeps it running for the
-// bookmarklets and Claude Code).
+// bookmarklets and Claude Code; on Windows/Linux closing the last window quits).
 //
 // Every write (UI, MCP, bookmarklet) goes through db.js in this process, so db.onChange
-// drives live UI updates, the dock badge ("waiting for me" count) and a notification
+// drives live UI updates, the dock badge or window title ("waiting for me" count) and a notification
 // when an agent hands a job back.
 import fs from "node:fs";
 import http from "node:http";
@@ -16,11 +16,14 @@ import { app, BrowserWindow, dialog, Menu, Notification, shell } from "electron"
 import { DIST_DIR, PORT, envDataRoot, getPaths, setDataRoot } from "./config.js";
 import { closeDb, folderCounts, getJob, initDb, onChange } from "./db.js";
 import { registerIpc } from "./ipc.js";
-import { registerTerminalIpc, stopTerminal } from "./terminal.js";
+import { menuTemplate } from "./menu.js";
+import { detectShells, registerTerminalIpc, stopTerminal } from "./terminal.js";
 import { createServer } from "./server.js";
 import { STATUS_LABELS, WAITING, actorKind } from "./workflow.js";
 
 app.setName("Job Tracker"); // same userData folder in dev and packaged builds
+// Windows shows notifications only for an app with an AppUserModelID (the build's appId).
+if (process.platform === "win32") app.setAppUserModelId("local.jobtracker");
 // Tests: a separate userData folder (its own config and single-instance lock), so a
 // test instance can run next to the real app.
 if (process.env.TRACKER_USER_DATA) app.setPath("userData", process.env.TRACKER_USER_DATA);
@@ -148,24 +151,19 @@ async function changeDataFolder() {
 }
 
 function buildMenu() {
-  const template = [
-    { role: "appMenu" },
-    {
-      label: "File",
-      submenu: [
-        { label: "Change Data Folder…", click: changeDataFolder },
-        {
-          label: "Show Data Folder",
-          click: () => shell.openPath(getPaths().DATA_ROOT),
-        },
-        { type: "separator" },
-        { role: "close" },
-      ],
+  const template = menuTemplate({
+    platform: process.platform,
+    shells: detectShells(),
+    shellChoice: readConfig().shell,
+    handlers: {
+      changeDataFolder,
+      showDataFolder: () => shell.openPath(getPaths().DATA_ROOT),
+      setShell: (id) => {
+        writeConfig({ ...readConfig(), shell: id });
+        buildMenu();
+      },
     },
-    { role: "editMenu" },
-    { role: "viewMenu" },
-    { role: "windowMenu" },
-  ];
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -187,7 +185,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1400,
     height: 900,
-    title: "Job Tracker",
+    title: windowTitle(),
     webPreferences: {
       preload: path.join(HERE, "preload.cjs"),
       contextIsolation: true,
@@ -205,6 +203,8 @@ function createWindow() {
       openWebLink(url);
     }
   });
+  // Keep our title (with the waiting count) rather than the page's <title>.
+  win.on("page-title-updated", (e) => e.preventDefault());
   win.on("closed", () => {
     win = null;
   });
@@ -221,15 +221,19 @@ function showWindow() {
 // --- live updates, dock badge, notifications --------------------------------------
 
 let pending = null;
+let waitingCount = 0;
+
+// No dock off macOS, so the waiting count goes in the window title there.
+const windowTitle = () => (process.platform !== "darwin" && waitingCount ? `Job Tracker (${waitingCount})` : "Job Tracker");
 
 function updateBadge() {
-  let n;
   try {
-    n = folderCounts().waiting;
+    waitingCount = folderCounts().waiting;
   } catch {
     return; // no database open (between folders)
   }
-  app.dock?.setBadge(n ? String(n) : "");
+  app.dock?.setBadge(waitingCount ? String(waitingCount) : "");
+  win?.setTitle(windowTitle());
 }
 
 function notifyHandBack(jobId, to) {
@@ -301,7 +305,7 @@ if (!app.requestSingleInstanceLock()) {
       return app.exit(1);
     }
     registerIpc(isAppUrl);
-    registerTerminalIpc(isAppUrl);
+    registerTerminalIpc(isAppUrl, { shellChoice: () => readConfig().shell });
     buildMenu();
     started = true;
     createWindow();

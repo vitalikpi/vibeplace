@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { kbd } from "../lib/platform.js";
 import { FOLDERS } from "../workflow.js";
 
 const ICONS = {
@@ -84,12 +85,12 @@ export default function Sidebar({ view, folder, counts, tracks, track, links, on
           </span>
           Bookmarklets
         </button>
-        <button className={item(terminalOpen)} onClick={onTerminal} title="Claude Code in the data folder (⌃`)">
+        <button className={item(terminalOpen)} onClick={onTerminal} title={`Claude Code in the data folder (${kbd("ctrl+`")})`}>
           <span className="w-5 text-center" aria-hidden>
             ⌨
           </span>
           <span className="flex-1">Claude Code</span>
-          <kbd className="text-[10px] text-slate-400">⌃`</kbd>
+          <kbd className="text-[10px] text-slate-400">{kbd("ctrl+`")}</kbd>
         </button>
       </div>
 
