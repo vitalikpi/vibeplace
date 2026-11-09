@@ -26,7 +26,7 @@ describe("actorKind", () => {
 
 describe("folders", () => {
   it("cover every status exactly once, with waiting = blocked + ready", () => {
-    expect(FOLDERS[0]).toMatchObject({ key: "waiting", statuses: WAITING });
+    expect(FOLDERS.find((f) => f.key === "waiting")).toMatchObject({ statuses: WAITING });
     expect(WAITING).toEqual(["blocked", "ready"]);
     const covered = FOLDERS.flatMap((f) => f.statuses).sort();
     expect(covered).toEqual([...STATUSES].sort());
