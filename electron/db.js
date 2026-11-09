@@ -29,8 +29,6 @@ export const COMPANY_BLACKLIST = new Set([
   "fonzi ai",
 ]);
 
-export const NEED_TYPES = ["account", "consent", "question", "captcha", "review", "wrong_page"];
-
 export class TransitionError extends Error {
   constructor(message, { code, allowed = [] } = {}) {
     super(message);
@@ -89,13 +87,6 @@ function conn() {
 
 const normCompany = (name) => (name || "").trim().toLowerCase();
 const str = (v, dflt = "") => String(v || dflt).trim();
-const parseJson = (s, dflt) => {
-  try {
-    return s ? JSON.parse(s) : dflt;
-  } catch {
-    return dflt;
-  }
-};
 
 export function linkedinIdFromUrl(url) {
   if (!url) return null;
@@ -146,24 +137,23 @@ function committedCompanies() {
   return new Set(rows.map((r) => normCompany(r.company)));
 }
 
-// Plain row → API shape: needs parsed, duplicateCompany flagged for rows that aren't
+// Plain row → API shape: scam_flag as a boolean, duplicateCompany flagged for rows that aren't
 // themselves committed while another row with the same company is.
 function decorate(row, committed) {
   if (!row) return null;
   const c = normCompany(row.company);
   return {
     ...row,
-    needs: parseJson(row.needs, []),
     scam_flag: Boolean(row.scam_flag),
     duplicateCompany: Boolean(c && committed.has(c) && !COMMITTED.includes(row.status)),
   };
 }
 
-function insertEvent(c, jobId, { actor, from = null, to = null, message = null, data = null, at = nowIso() }) {
+function insertEvent(c, jobId, { actor, from = null, to = null, message = null, at = nowIso() }) {
   c.prepare(
-    `INSERT INTO job_events (job_id, at, actor, from_status, to_status, message, data)
-       VALUES (?,?,?,?,?,?,?)`
-  ).run(jobId, at, actor, from, to, message, data == null ? null : JSON.stringify(data));
+    `INSERT INTO job_events (job_id, at, actor, from_status, to_status, message)
+       VALUES (?,?,?,?,?,?)`
+  ).run(jobId, at, actor, from, to, message);
 }
 
 // Insert a job (bookmarklet, MCP, UI), or refresh the captured fields of the row
@@ -200,8 +190,8 @@ export function addJob(data, { actor = "bookmarklet", track = null } = {}) {
       const info = c
         .prepare(
           `INSERT INTO jobs (linkedin_id, url, company, title, location, body, source, track,
-             status, notes, needs, created_at, updated_at)
-             VALUES (?,?,?,?,?,?,?,?,'new','','[]',?,?)`
+             status, notes, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,?,'new','',?,?)`
         )
         .run(lid, url, company, title, location, body, source, track, now, now);
       id = Number(info.lastInsertRowid);
@@ -225,10 +215,7 @@ export function getJob(id) {
 }
 
 export function listEvents(jobId) {
-  return conn()
-    .prepare("SELECT * FROM job_events WHERE job_id=? ORDER BY at, id")
-    .all(jobId)
-    .map((e) => ({ ...e, data: parseJson(e.data, null) }));
+  return conn().prepare("SELECT * FROM job_events WHERE job_id=? ORDER BY at, id").all(jobId);
 }
 
 // Job + its event timeline, for the detail pane and get_job.
@@ -285,7 +272,7 @@ export function listJobSummaries({ folder = "new", track = null, q = null, limit
   const rows = c
     .prepare(
       `SELECT id, company, title, location, url, apply_url, ats, track, status, created_at,
-              updated_at, applied_at, needs, referral, scam_flag, owner, lease_until, tab_id, step,
+              updated_at, applied_at, referral, scam_flag, owner, lease_until, tab_id, step,
               (SELECT message FROM job_events e WHERE e.job_id = jobs.id AND e.message IS NOT NULL
                  ORDER BY e.at DESC, e.id DESC LIMIT 1) AS last_event
          FROM jobs WHERE ${where}
@@ -319,27 +306,13 @@ export function stats() {
   return Object.fromEntries(rows.map((r) => [r.status, r.n]));
 }
 
-function normalizeNeeds(needs) {
-  if (!Array.isArray(needs)) return [];
-  return needs
-    .filter((n) => n && typeof n === "object")
-    .map((n, i) => ({
-      ...n,
-      id: String(n.id ?? `n${i + 1}`),
-      type: NEED_TYPES.includes(n.type) ? n.type : "review",
-      text: String(n.text ?? n.q ?? ""),
-    }));
-}
-
 // Move a job to `to`. Enforces workflow.js for the actor's kind unless a human
 // passes override. Side effects, all in one transaction:
 //   - applied_at set the first time the job reaches 'applied'
 //   - entering in_progress from triaged/on_hold/ready/blocked queues start/unblock
-//     (payload = data.answers) and clears needs
-//   - entering blocked stores data.needs
 //   - leaving in_progress drops the owner and closes the job's open queue messages
 // Returns the updated job. Throws TransitionError.
-export function transition(jobId, to, { actor = "human", message = null, data = null, override = false } = {}) {
+export function transition(jobId, to, { actor = "human", message = null, override = false } = {}) {
   const kind = actorKind(actor);
   if (!STATUSES.includes(to)) throw new TransitionError(`unknown status ${to}`, { code: "bad_status" });
   if (!kind) throw new TransitionError(`unknown actor ${actor}`, { code: "not_allowed" });
@@ -365,13 +338,6 @@ export function transition(jobId, to, { actor = "human", message = null, data = 
       sets.push("applied_at=?");
       args.push(now);
     }
-    if (to === "blocked") {
-      sets.push("needs=?");
-      args.push(JSON.stringify(normalizeNeeds(data?.needs)));
-    }
-    if (to === "in_progress") {
-      sets.push("needs='[]'");
-    }
     if (from === "in_progress") {
       sets.push("owner=NULL", "lease_until=NULL");
       c.prepare("UPDATE job_queue SET done_at=? WHERE job_id=? AND done_at IS NULL").run(now, jobId);
@@ -380,29 +346,16 @@ export function transition(jobId, to, { actor = "human", message = null, data = 
 
     const queueKind = to === "in_progress" ? QUEUE_ON_ENTER[from] : null;
     if (queueKind) {
-      c.prepare("INSERT INTO job_queue (job_id, kind, payload, created_at) VALUES (?,?,?,?)").run(
-        jobId,
-        queueKind,
-        data?.answers == null ? null : JSON.stringify(data.answers),
-        now
-      );
+      c.prepare("INSERT INTO job_queue (job_id, kind, created_at) VALUES (?,?,?)").run(jobId, queueKind, now);
     }
-    const evData = { ...(data || {}), ...(forced && !canTransition(from, to, kind) ? { override: true } : {}) };
-    insertEvent(c, jobId, {
-      actor,
-      from,
-      to,
-      message,
-      data: Object.keys(evData).length ? evData : null,
-      at: now,
-    });
+    insertEvent(c, jobId, { actor, from, to, message, at: now });
     return c.prepare("SELECT * FROM jobs WHERE id=?").get(jobId);
   })();
   emit([{ kind: "transition", jobId, to, actor }]);
   return decorate(job, committedCompanies());
 }
 
-const EDITABLE = ["apply_url", "ats", "step", "tab_id", "referral", "scam_flag", "track", "notes"];
+const EDITABLE = ["apply_url", "ats", "step", "tab_id", "referral", "scam_flag", "track", "notes", "account_tenant"];
 
 // Update non-status fields. Unknown keys are ignored; returns null when nothing valid
 // was given or the job doesn't exist. ats is detected from apply_url when not given.
@@ -415,7 +368,7 @@ export function setJobFields(jobId, fields, { actor = "human" } = {}) {
   }
   if ("scam_flag" in f) f.scam_flag = f.scam_flag ? 1 : 0;
   if ("tab_id" in f) f.tab_id = Number.isInteger(f.tab_id) ? f.tab_id : null;
-  for (const k of ["apply_url", "ats", "step", "referral", "track"]) {
+  for (const k of ["apply_url", "ats", "step", "referral", "track", "account_tenant"]) {
     if (k in f) f[k] = f[k] == null || f[k] === "" ? null : String(f[k]);
   }
   if ("notes" in f) f.notes = f.notes == null ? "" : String(f.notes);
@@ -430,29 +383,12 @@ export function setJobFields(jobId, fields, { actor = "human" } = {}) {
   return getJob(jobId);
 }
 
-export function addEvent(jobId, { actor, message = null, data = null }) {
+export function addEvent(jobId, { actor, message = null }) {
   if (!conn().prepare("SELECT 1 FROM jobs WHERE id=?").get(jobId)) return null;
-  insertEvent(conn(), jobId, { actor, message, data });
+  insertEvent(conn(), jobId, { actor, message });
   conn().prepare("UPDATE jobs SET updated_at=? WHERE id=?").run(nowIso(), jobId);
   emit([{ kind: "event", jobId, actor }]);
   return listEvents(jobId).at(-1);
-}
-
-// Tick off one item of a blocked job's needs. Returns the remaining needs, or null.
-export function resolveNeed(jobId, needId, { actor = "human" } = {}) {
-  const out = conn().transaction(() => {
-    const row = conn().prepare("SELECT needs FROM jobs WHERE id=?").get(jobId);
-    if (!row) return null;
-    const needs = parseJson(row.needs, []);
-    const need = needs.find((n) => String(n.id) === String(needId));
-    if (!need) return null;
-    const rest = needs.filter((n) => n !== need);
-    conn().prepare("UPDATE jobs SET needs=?, updated_at=? WHERE id=?").run(JSON.stringify(rest), nowIso(), jobId);
-    insertEvent(conn(), jobId, { actor, message: `resolved: ${need.text}`, data: { need } });
-    return rest;
-  })();
-  if (out) emit([{ kind: "updated", jobId, actor }]);
-  return out;
 }
 
 // --- agent loop: queue + per-job lease ----------------------------------------
@@ -484,7 +420,7 @@ export function queueNext(agent, { leaseMinutes = 30 } = {}) {
     c.prepare("UPDATE jobs SET owner=?, lease_until=? WHERE id=?").run(agent, minutesFromNow(leaseMinutes), msg.job_id);
     insertEvent(c, msg.job_id, { actor: agent, message: `took ${msg.kind}` });
     return {
-      message: { id: msg.id, kind: msg.kind, payload: parseJson(msg.payload, null), created_at: msg.created_at },
+      message: { id: msg.id, kind: msg.kind, created_at: msg.created_at },
       jobId: msg.job_id,
     };
   })();
@@ -518,7 +454,7 @@ export function releaseJob(jobId, { actor, message }) {
       now,
       jobId
     );
-    insertEvent(c, jobId, { actor, message: message || "released", data: { stopped: true } });
+    insertEvent(c, jobId, { actor, message: message || "released" });
     return true;
   })();
   if (ok) emit([{ kind: "event", jobId, actor }]);
@@ -680,22 +616,12 @@ export function saveAccount({ tenant, employer, email, password, ats = null, not
   })();
 }
 
-// The account for a job, if one is stored: the one create_account linked to it (the
-// latest event with data.account), else the one keyed on its apply_url or url host.
+// The account for a job, if one is stored: the one create_account linked to it
+// (account_tenant), else the one keyed on its apply_url or url host.
 export function accountForJob(job) {
   if (!job) return null;
-  if (job.id != null) {
-    const linked = conn()
-      .prepare(
-        `SELECT json_extract(data, '$.account') FROM job_events
-          WHERE job_id = ? AND json_extract(data, '$.account') IS NOT NULL
-          ORDER BY at DESC, id DESC LIMIT 1`
-      )
-      .pluck()
-      .get(job.id);
-    const account = linked && getAccount(linked);
-    if (account) return account;
-  }
+  const linked = getAccount(job.account_tenant);
+  if (linked) return linked;
   for (const url of [job.apply_url, job.url]) {
     const account = getAccount(accountHostFromUrl(url));
     if (account) return account;

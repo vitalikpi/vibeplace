@@ -72,10 +72,10 @@ describe("built-in ✅ Unblocked", () => {
   const builtin = () => listBookmarklets().find((b) => b.builtin);
 
   // Run the bookmarklet against a fake page; returns the URL it opened (or null).
-  function press({ title, href = "https://acme.wd1.myworkdayjobs.com/job/1/apply", answer = "" }) {
+  function press({ title, href = "https://acme.wd1.myworkdayjobs.com/job/1/apply", confirmed = true }) {
     const opened = [];
-    const run = new Function("document", "location", "prompt", "window", decode(builtin().code));
-    run({ title }, { href }, () => answer, { open: (url) => opened.push(url) });
+    const run = new Function("document", "location", "confirm", "window", decode(builtin().code));
+    run({ title }, { href }, () => confirmed, { open: (url) => opened.push(url) });
     return opened[0] ?? null;
   }
   const request = (url) => JSON.parse(decodeURIComponent(url.split("#")[1]));
@@ -92,26 +92,25 @@ describe("built-in ✅ Unblocked", () => {
 
   it("opens this app's /act page with an unblock for '#<id>' from the tab title", () => {
     tempDataRoot();
-    const url = press({ title: "🟡 #42 Application – Acme", answer: "  Java level 3  " });
+    const url = press({ title: "🟡 #42 Application – Acme" });
     expect(url.startsWith(`http://127.0.0.1:${process.env.PORT}/act#`)).toBe(true);
     expect(request(url)).toEqual({
       op: "unblock",
       job_id: 42,
       url: "https://acme.wd1.myworkdayjobs.com/job/1/apply",
       title: "🟡 #42 Application – Acme",
-      answers: "Java level 3",
     });
   });
 
-  it("falls back to the page URL without an id, and sends no answers when left empty", () => {
+  it("falls back to the page URL without an id", () => {
     tempDataRoot();
     const req = request(press({ title: "Apply – Acme" }));
     expect(req).toEqual({ op: "unblock", url: "https://acme.wd1.myworkdayjobs.com/job/1/apply", title: "Apply – Acme" });
   });
 
-  it("does nothing when the prompt is cancelled", () => {
+  it("does nothing when the confirmation is cancelled", () => {
     tempDataRoot();
-    expect(press({ title: "#42", answer: null })).toBeNull();
+    expect(press({ title: "#42", confirmed: false })).toBeNull();
   });
 });
 

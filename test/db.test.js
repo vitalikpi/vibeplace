@@ -74,8 +74,8 @@ describe("addJob", () => {
       track: "remote",
       status: "new",
       notes: "",
-      needs: [],
       applied_at: null,
+      account_tenant: null,
     });
     expect(job.created_at).toMatch(ISO_SECONDS);
     expect(db.listEvents(id)).toMatchObject([{ actor: "bookmarklet", from_status: null, to_status: "new", message: "captured" }]);
@@ -138,11 +138,11 @@ describe("transition", () => {
     expect(() => db.transition(999, "trash", { actor: "human" })).toThrowError(expect.objectContaining({ code: "not_found" }));
   });
 
-  it("lets a human override the rules, and records that", () => {
+  it("lets a human override the rules", () => {
     const id = jobIn("rejected");
     db.transition(id, "applied", { actor: "human", override: true, message: "fixing a misclick" });
     expect(db.getJob(id).status).toBe("applied");
-    expect(db.listEvents(id).at(-1).data).toEqual({ override: true });
+    expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "human", from_status: "rejected", to_status: "applied", message: "fixing a misclick" });
     const other = jobIn("rejected");
     expect(() => db.transition(other, "applied", { actor: "agent:a", override: true })).toThrow(/cannot move/);
   });
@@ -156,20 +156,16 @@ describe("transition", () => {
     expect(db.getJob(id).applied_at).toBe("2026-11-02T10:00:00+00:00");
   });
 
-  it("queues 'start' on Start and 'unblock' with the answers on Unblock, and clears needs", () => {
+  it("queues 'start' on Start and 'unblock' on Unblock; a block is just a timeline message", () => {
     const id = jobIn("triaged");
     db.transition(id, "in_progress", { actor: "human" });
     const first = db.queueNext("agent:a");
-    expect(first.message).toMatchObject({ kind: "start", payload: null });
+    expect(first.message).toEqual({ id: expect.any(Number), kind: "start", created_at: expect.any(String) });
 
-    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "question", q: "Java level 1–3" }, { type: "consent", text: "Privacy" }] } });
-    expect(db.getJob(id).needs).toEqual([
-      { id: "n1", type: "question", q: "Java level 1–3", text: "Java level 1–3" },
-      { id: "n2", type: "consent", text: "Privacy" },
-    ]);
-    db.transition(id, "in_progress", { actor: "bookmarklet", data: { answers: { n1: "3" } } });
-    expect(db.getJob(id).needs).toEqual([]);
-    expect(db.queueNext("agent:b").message).toMatchObject({ kind: "unblock", payload: { n1: "3" } });
+    db.transition(id, "blocked", { actor: "agent:a", message: "Verify the Workday login" });
+    expect(db.listEvents(id).at(-1)).toMatchObject({ to_status: "blocked", message: "Verify the Workday login" });
+    db.transition(id, "in_progress", { actor: "bookmarklet" });
+    expect(db.queueNext("agent:b").message).toMatchObject({ kind: "unblock" });
   });
 
   it("drops the owner and closes open queue messages when the job leaves in_progress", () => {
@@ -245,12 +241,12 @@ describe("agent queue + lease", () => {
     db.queueNext("agent:a");
     expect(db.releaseJob(id, { actor: "agent:a", message: "tab group vanished" })).toBe(true);
     expect(db.getJob(id)).toMatchObject({ status: "in_progress", owner: null });
-    expect(db.listEvents(id).at(-1)).toMatchObject({ message: "tab group vanished", data: { stopped: true } });
+    expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "agent:a", message: "tab group vanished" });
     expect(db.queueNext("agent:b")).toBeNull(); // the taken message is closed, not re-offered
   });
 });
 
-describe("fields, needs, events", () => {
+describe("fields, events", () => {
   it("setJobFields updates only editable fields and detects the ATS from apply_url", () => {
     const { id } = db.addJob({ url: LI(1), title: "t" });
     const job = db.setJobFields(id, { apply_url: "https://jobs.ashbyhq.com/acme/1", status: "applied", tab_id: 42, scam_flag: 1 });
@@ -259,14 +255,6 @@ describe("fields, needs, events", () => {
     expect(db.setJobFields(id, { title: "nope" })).toBeNull();
     expect(db.setJobFields(999, { notes: "x" })).toBeNull();
     expect(db.setJobFields(id, { referral: "", tab_id: "7" })).toMatchObject({ referral: null, tab_id: null });
-  });
-
-  it("resolveNeed removes one item and logs it", () => {
-    const id = jobIn("in_progress");
-    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }, { type: "captcha", text: "hCaptcha" }] } });
-    expect(db.resolveNeed(id, "n1")).toEqual([{ id: "n2", type: "captcha", text: "hCaptcha" }]);
-    expect(db.listEvents(id).at(-1).message).toBe("resolved: Privacy");
-    expect(db.resolveNeed(id, "nope")).toBeNull();
   });
 
   it("addEvent appends a timeline note and bumps activity", () => {
@@ -303,7 +291,7 @@ describe("list queries", () => {
     const page = db.listJobSummaries({ folder: "new", limit: 2 });
     expect(page.total).toBe(3);
     expect(page.jobs.map((j) => j.id)).toEqual([ids[0], ids[2]]);
-    expect(page.jobs[0]).toMatchObject({ last_event: "called recruiter", needs: [] });
+    expect(page.jobs[0]).toMatchObject({ last_event: "called recruiter" });
     expect("body" in page.jobs[0]).toBe(false);
     expect(db.listJobSummaries({ folder: "new", limit: 2, offset: 2 }).jobs.map((j) => j.id)).toEqual([ids[1]]);
   });
@@ -449,12 +437,12 @@ describe("accounts", () => {
     expect(db.accountForJob({ url: "https://example.com" })).toBeNull();
   });
 
-  it("accountForJob prefers the account linked by an event (shared ATS hosts)", () => {
+  it("accountForJob prefers the account linked in account_tenant (shared ATS hosts)", () => {
     const { id } = db.addJob({ url: "https://jobs.dayforcehcm.com/en-US/acme/1", title: "t" });
     db.saveAccount({ tenant: "jobs.dayforcehcm.com", email: "wrong@x", password: "p" });
     db.saveAccount({ tenant: "jobs.dayforcehcm.com/acme", email: "a@x", password: "p" });
     expect(db.accountForJob(db.getJob(id))).toMatchObject({ email: "wrong@x" });
-    db.addEvent(id, { actor: "agent:a", message: "linked", data: { account: "jobs.dayforcehcm.com/acme" } });
+    db.setJobFields(id, { account_tenant: "jobs.dayforcehcm.com/acme" });
     expect(db.accountForJob(db.getJob(id))).toMatchObject({ email: "a@x" });
   });
 });

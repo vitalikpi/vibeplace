@@ -12,7 +12,6 @@ function renderDetail(overrides = {}) {
   const h = {
     onTransition: vi.fn(),
     onSetFields: vi.fn(),
-    onResolveNeed: vi.fn(),
     onAddNote: vi.fn(async () => {}),
     onReveal: vi.fn(async () => "s3cret"),
     onClose: vi.fn(),
@@ -54,20 +53,15 @@ describe("JobDetail", () => {
     expect(h.onTransition).toHaveBeenCalledWith("applied", { override: true });
   });
 
-  it("for a blocked job, lists the needs, resolves items and unblocks with the answers", async () => {
+  it("for a blocked job, shows the agent's message in the timeline and Unblock in the toolbar", async () => {
     const h = renderDetail({
       status: "blocked",
-      needs: [
-        { id: "n1", type: "consent", text: "Privacy dropdown" },
-        { id: "n2", type: "question", text: "Java level", q: "Java level 1–3" },
-      ],
+      events: [{ id: 1, actor: "agent:a", from_status: "in_progress", to_status: "blocked", message: "Accept the privacy consent", at: "2026-11-05T12:00:00+00:00" }],
     });
-    expect(actionLabels()).not.toContain("Unblock"); // it lives with the needs
-    await userEvent.click(screen.getByLabelText("Done: Privacy dropdown"));
-    expect(h.onResolveNeed).toHaveBeenCalledWith("n1");
-    await userEvent.type(screen.getByPlaceholderText("Your answer"), "3");
-    await userEvent.click(screen.getByText(/Unblock → back to the agent/));
-    expect(h.onTransition).toHaveBeenCalledWith("in_progress", { answers: { n2: "3" } });
+    expect(screen.getByText("Accept the privacy consent")).toBeTruthy();
+    expect(actionLabels()).toContain("Unblock");
+    await userEvent.click(screen.getByRole("button", { name: "Unblock" }));
+    expect(h.onTransition).toHaveBeenCalledWith("in_progress");
   });
 
   it("links only to http(s) URLs", () => {

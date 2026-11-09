@@ -25,16 +25,12 @@ export default function Timeline({ events }) {
                 {STATUS_LABELS[e.to_status] || e.to_status}
               </span>
             )}
-            {e.data?.override && <span title="Moved outside the usual workflow">(override)</span>}
             <time dateTime={e.at} title={fullTime(e.at)} className="ml-auto tabular-nums">
               {relTime(e.at)}
             </time>
           </div>
           {e.message && e.message !== e.to_status && (
             <p className="mt-0.5 whitespace-pre-wrap break-words text-slate-700 dark:text-slate-300">{e.message}</p>
-          )}
-          {e.data?.answers && (
-            <p className="mt-0.5 text-xs text-slate-500">answers: {JSON.stringify(e.data.answers)}</p>
           )}
         </li>
       ))}

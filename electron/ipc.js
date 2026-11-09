@@ -20,13 +20,8 @@ function needId(id) {
 
 // TransitionErrors carry the reason the move was refused; keep just that.
 function moveOne(id, to, opts = {}) {
-  const { message = null, answers, override = false } = isObject(opts) ? opts : {};
-  return db.transition(needId(id), to, {
-    ...HUMAN,
-    message: optStr(message),
-    data: answers === undefined ? null : { answers },
-    override: override === true,
-  });
+  const { message = null, override = false } = isObject(opts) ? opts : {};
+  return db.transition(needId(id), to, { ...HUMAN, message: optStr(message), override: override === true });
 }
 
 // isTrusted(url) decides whether a frame may call these handlers (the app's own page
@@ -75,11 +70,6 @@ export function registerIpc(isTrusted) {
     const job = db.setJobFields(needId(id), fields, HUMAN);
     if (job === null) throw new Error("no valid fields or job not found");
     return job;
-  });
-  handle("jobs:resolveNeed", (id, need) => {
-    const rest = db.resolveNeed(needId(id), String(need ?? ""), HUMAN);
-    if (rest === null) throw new Error("need not found");
-    return rest;
   });
   handle("jobs:addNote", (id, message) => {
     if (!optStr(message)) throw new Error("empty note");

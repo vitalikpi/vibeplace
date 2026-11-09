@@ -35,7 +35,6 @@ describe("IPC bridge", () => {
         "jobs:bulkTransition",
         "jobs:get",
         "jobs:list",
-        "jobs:resolveNeed",
         "jobs:setFields",
         "jobs:transition",
         "settings:get",
@@ -101,13 +100,8 @@ describe("IPC bridge", () => {
     expect(() => invoke("jobs:setFields", id, { title: "x" })).toThrow(/no valid fields/);
   });
 
-  it("jobs:resolveNeed and jobs:addNote", () => {
+  it("jobs:addNote", () => {
     const { id } = db.addJob({ url: LI(1), title: "t" });
-    db.transition(id, "triaged", { actor: "human" });
-    db.transition(id, "in_progress", { actor: "human" });
-    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }] } });
-    expect(invoke("jobs:resolveNeed", id, "n1")).toEqual([]);
-    expect(() => invoke("jobs:resolveNeed", id, "n1")).toThrow(/need not found/);
     expect(invoke("jobs:addNote", id, "called the recruiter")).toMatchObject({ actor: "human", message: "called the recruiter" });
     expect(() => invoke("jobs:addNote", id, "")).toThrow(/empty note/);
   });

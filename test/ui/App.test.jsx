@@ -44,7 +44,7 @@ globalThis.ResizeObserver ??= class {
 let tracker;
 beforeEach(() => {
   tracker = fakeTracker([
-    job({ id: 1, company: "Acme", status: "blocked", needs: [{ id: "n1", type: "consent", text: "Privacy" }] }),
+    job({ id: 1, company: "Acme", status: "blocked", last_event: "Accept the privacy consent" }),
     job({ id: 2, company: "Beta", status: "ready" }),
     job({ id: 3, company: "Gamma", status: "new" }),
   ]);
@@ -85,7 +85,7 @@ describe("App", () => {
     await userEvent.keyboard("k{Enter}");
     const pane = await screen.findByRole("complementary", { name: "Job details" });
     expect(within(pane).getByText("Acme")).toBeTruthy();
-    expect(within(pane).getByText("The agent needs you")).toBeTruthy();
+    expect(within(pane).getByRole("button", { name: "Unblock" })).toBeTruthy();
   });
 
   it("trashes the job under the cursor with e, and the selection with e when there is one", async () => {

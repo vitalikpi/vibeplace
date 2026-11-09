@@ -85,18 +85,18 @@ describe("POST /api/act (✅ Unblocked / ✅ Submitted)", () => {
     db.transition(id, "triaged", { actor: "human" });
     db.transition(id, "in_progress", { actor: "human" });
     db.queueNext("agent:a");
-    db.transition(id, "blocked", { actor: "agent:a", data: { needs: [{ type: "consent", text: "Privacy" }] } });
+    db.transition(id, "blocked", { actor: "agent:a", message: "Accept the privacy consent" });
     db.setJobFields(id, { apply_url: "https://acme.wd1.myworkdayjobs.com/en-US/job/9/apply" });
     return id;
   }
   const act = (body) => post("/api/act").set("Content-Type", "text/plain").send(JSON.stringify(body));
 
-  it("unblocks by job id with the answers, queueing them for the agent", async () => {
+  it("unblocks by job id, queueing an unblock for the agent", async () => {
     const id = blockedJob();
-    const res = await act({ op: "unblock", job_id: id, answers: { n1: "accepted" } }).expect(200);
+    const res = await act({ op: "unblock", job_id: id }).expect(200);
     expect(res.body).toEqual({ ok: true, job_id: id, status: "in_progress" });
     expect(db.listEvents(id).at(-1)).toMatchObject({ actor: "bookmarklet", from_status: "blocked", to_status: "in_progress" });
-    expect(db.queueNext("agent:b").message).toMatchObject({ kind: "unblock", payload: { n1: "accepted" } });
+    expect(db.queueNext("agent:b").message).toMatchObject({ kind: "unblock" });
   });
 
   it("finds the job from '#<id>' in the page title, or from the application URL", async () => {
@@ -107,12 +107,6 @@ describe("POST /api/act (✅ Unblocked / ✅ Submitted)", () => {
     const res = await act({ op: "submitted", url: "https://boards.greenhouse.io/acme/jobs/77?gh_src=x" }).expect(200);
     expect(res.body).toEqual({ ok: true, job_id: b, status: "applied" });
     expect(db.getJob(b).applied_at).not.toBeNull();
-  });
-
-  it("passes a plain-text answer (what ✅ Unblocked sends) through to the agent", async () => {
-    const id = blockedJob();
-    await act({ op: "unblock", job_id: id, title: `🟡 #${id} Apply`, answers: "Java level 3" }).expect(200);
-    expect(db.queueNext("agent:b").message.payload).toBe("Java level 3");
   });
 
   it("accepts the id as a string", async () => {
