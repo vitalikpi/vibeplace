@@ -1,4 +1,4 @@
-// MCP server for the job tracker, over Streamable HTTP at http://127.0.0.1:7085/mcp.
+// MCP server for vibeplace, over Streamable HTTP at http://127.0.0.1:7085/mcp.
 // It shares db.js with the UI, so every change shows up in the app immediately.
 // Only reachable while the app is running.
 //
@@ -65,7 +65,7 @@ function mustExist(id) {
 }
 
 function buildServer() {
-  const mcp = new McpServer({ name: "jobtracker", version: "2.0.0" });
+  const mcp = new McpServer({ name: "vibeplace", version: "2.0.0" });
   const tool = (name, description, inputSchema, handler) =>
     mcp.registerTool(name, { description, inputSchema, outputSchema: RESULT }, (args) => guarded(() => handler(args)));
 

@@ -37,7 +37,7 @@ const V1_ROWS = [
 
 let dir;
 function v1Db() {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-migrate-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "vibeplace-migrate-"));
   const file = path.join(dir, "jobs.db");
   const raw = new Database(file);
   raw.exec(V1_SCHEMA);
@@ -149,7 +149,7 @@ PRAGMA user_version = 2;
 const V3_SCHEMA = V2_SCHEMA.replace("linkedin_id TEXT UNIQUE, ", "").replace("user_version = 2", "user_version = 3");
 
 function v2Db() {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-migrate-v2-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "vibeplace-migrate-v2-"));
   const file = path.join(dir, "jobs.db");
   const raw = new Database(file);
   raw.exec(V2_SCHEMA);
@@ -210,7 +210,7 @@ describe("v2 → v3 migration", () => {
 
 // A v2 or v3 database with the needs / answers workflow's data in it.
 function needsDb(schema) {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-migrate-needs-"));
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), "vibeplace-migrate-needs-"));
   const file = path.join(dir, "jobs.db");
   const raw = new Database(file);
   raw.exec(schema);
@@ -269,7 +269,7 @@ describe("→ v4 migration (no needs / answers)", () => {
 
 describe("fresh database", () => {
   it("is created straight at the current version with no backup", () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-fresh-"));
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "vibeplace-fresh-"));
     const db = initDb(path.join(dir, "jobs.db"));
     expect(db.pragma("user_version", { simple: true })).toBe(SCHEMA_VERSION);
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").pluck().all();

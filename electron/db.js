@@ -1,4 +1,4 @@
-// SQLite storage for the job tracker. Source of truth for all jobs.
+// SQLite storage for vibeplace. Source of truth for all jobs.
 // better-sqlite3 with one shared connection, opened by initDb(). Status changes go
 // through transition(), which enforces workflow.js and writes the event log.
 import crypto from "node:crypto";

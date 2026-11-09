@@ -136,7 +136,7 @@ describe("shell command and environment", () => {
   });
   it("drops Electron's and the tracker's own variables and sets a terminal type", () => {
     const env = term.shellEnv({ PATH: "/usr/bin", HOME: "/h", ELECTRON_RUN_AS_NODE: "1", TRACKER_DATA_ROOT: "/x", TRACKER_USER_DATA: "/y" });
-    expect(env).toEqual({ PATH: "/usr/bin", HOME: "/h", TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "JobTracker" });
+    expect(env).toEqual({ PATH: "/usr/bin", HOME: "/h", TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "vibeplace" });
   });
 });
 

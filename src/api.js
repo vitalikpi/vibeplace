@@ -2,7 +2,7 @@
 // (electron/preload.cjs → electron/ipc.js). The UI never talks HTTP to the app.
 
 function tracker() {
-  if (!window.tracker) throw new Error("not running inside the Job Tracker app");
+  if (!window.tracker) throw new Error("not running inside the vibeplace app");
   return window.tracker;
 }
 

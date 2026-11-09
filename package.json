@@ -1,8 +1,8 @@
 {
-  "name": "jobsearch-tracker",
+  "name": "vibeplace",
   "private": true,
   "version": "1.0.0",
-  "description": "Job Tracker desktop app",
+  "description": "vibeplace desktop app",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -50,8 +50,8 @@
     "wait-on": "9.5.1"
   },
   "build": {
-    "appId": "local.jobtracker",
-    "productName": "Job Tracker",
+    "appId": "local.vibeplace",
+    "productName": "vibeplace",
     "files": [
       "electron/**",
       "dist/**",

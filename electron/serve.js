@@ -19,7 +19,7 @@ server.once("error", (e) => {
   process.exit(1);
 });
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`Job Tracker API on http://127.0.0.1:${PORT} (data: ${getPaths().DATA_ROOT})`);
+  console.log(`vibeplace API on http://127.0.0.1:${PORT} (data: ${getPaths().DATA_ROOT})`);
 });
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {

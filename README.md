@@ -1,4 +1,4 @@
-# Job Tracker
+# vibeplace
 
 A desktop app for a job search, laid out like a mail client. Postings come in through
 your own bookmarklets, through Claude Code over MCP, or by hand (**＋ New job**). You triage them, Claude-in-Chrome
@@ -11,8 +11,8 @@ evidence records the outcome. The full workflow is in [`job-flow.md`](job-flow.m
 npm install              # also rebuilds native modules for Electron
 npm run electron:dev     # Vite on :5173 with hot reload + Electron
 npm run electron:start   # build the UI, run the app
-npm run dist:mac         # build release/Job Tracker-<version>-arm64.dmg (unsigned; `dist` = this)
-npm run dist:win         # on Windows: build release/Job Tracker Setup <version>.exe (unsigned)
+npm run dist:mac         # build release/vibeplace-<version>-arm64.dmg (unsigned; `dist` = this)
+npm run dist:win         # on Windows: build release/vibeplace Setup <version>.exe (unsigned)
 npm test                 # unit + UI tests (Vitest); npm run test:watch to rerun on change
 ```
 
@@ -101,7 +101,7 @@ the Windows ConPTY/winpty binaries) outside the asar archive.
 ## Data folder
 
 On first launch the app asks for a data folder. It remembers the choice in
-`~/Library/Application Support/Job Tracker/config.json`, and you can change it later
+`~/Library/Application Support/vibeplace/config.json`, and you can change it later
 with **File → Change Data Folder…**. An empty folder starts a fresh tracker. The
 folder layout:
 
@@ -176,7 +176,7 @@ URL. When nothing matches, or several jobs do, the page stays open and says so.
 While the app runs, point Claude Code at it in `.mcp.json`:
 
 ```json
-{ "mcpServers": { "jobtracker": { "type": "http", "url": "http://127.0.0.1:7085/mcp" } } }
+{ "mcpServers": { "vibeplace": { "type": "http", "url": "http://127.0.0.1:7085/mcp" } } }
 ```
 
 | Group | Tools |

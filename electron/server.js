@@ -112,7 +112,7 @@ export function createServer() {
   // Same-origin page for bookmarklet ops: the hash holds the /api/act body.
   app.get("/act", (req, res) => res.type("html").send(ACT_HTML));
 
-  app.get("/", (req, res) => res.type("text").send("Job Tracker capture endpoint. Open the app to see the board."));
+  app.get("/", (req, res) => res.type("text").send("vibeplace capture endpoint. Open the app to see the board."));
   app.use((req, res) => res.status(404).json({ error: "not found" }));
 
   return app;

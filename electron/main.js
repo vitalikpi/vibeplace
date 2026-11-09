@@ -21,9 +21,9 @@ import { detectShells, registerTerminalIpc, stopTerminal } from "./terminal.js";
 import { createServer } from "./server.js";
 import { STATUS_LABELS, WAITING, actorKind } from "./workflow.js";
 
-app.setName("Job Tracker"); // same userData folder in dev and packaged builds
+app.setName("vibeplace"); // same userData folder in dev and packaged builds
 // Windows shows notifications only for an app with an AppUserModelID (the build's appId).
-if (process.platform === "win32") app.setAppUserModelId("local.jobtracker");
+if (process.platform === "win32") app.setAppUserModelId("local.vibeplace");
 // Tests: a separate userData folder (its own config and single-instance lock), so a
 // test instance can run next to the real app.
 if (process.env.TRACKER_USER_DATA) app.setPath("userData", process.env.TRACKER_USER_DATA);
@@ -35,6 +35,14 @@ const INDEX_HTML = path.join(DIST_DIR, "index.html");
 // Prefix every URL of the app's own page starts with (dev server or dist/ on disk).
 const APP_PREFIX = DEV ? DEV_URL + "/" : pathToFileURL(DIST_DIR).href + "/";
 const configPath = () => path.join(app.getPath("userData"), "config.json");
+// The app was called "Job Tracker" before; its config (the saved data folder) lived there.
+const legacyConfigPath = () => path.join(app.getPath("appData"), "Job Tracker", "config.json");
+
+// One-time carry-over of the pre-rename config, so existing installs keep their data folder.
+if (!process.env.TRACKER_USER_DATA && !fs.existsSync(configPath()) && fs.existsSync(legacyConfigPath())) {
+  fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+  fs.copyFileSync(legacyConfigPath(), configPath());
+}
 
 let win = null;
 let server = null;
@@ -56,7 +64,7 @@ function writeConfig(cfg) {
 
 async function pickDataFolder(message) {
   const { canceled, filePaths } = await dialog.showOpenDialog({
-    title: "Choose the Job Tracker data folder",
+    title: "Choose the vibeplace data folder",
     message,
     buttonLabel: "Use This Folder",
     properties: ["openDirectory", "createDirectory"],
@@ -105,7 +113,7 @@ function startupError(e) {
       "Another program (an old tracker?) is using it. Quit it, or start the app with PORT set to a free port."
     );
   } else {
-    dialog.showErrorBox("Job Tracker failed to start", String(e.stack || e));
+    dialog.showErrorBox("vibeplace failed to start", String(e.stack || e));
   }
 }
 
@@ -224,7 +232,7 @@ let pending = null;
 let waitingCount = 0;
 
 // No dock off macOS, so the waiting count goes in the window title there.
-const windowTitle = () => (process.platform !== "darwin" && waitingCount ? `Job Tracker (${waitingCount})` : "Job Tracker");
+const windowTitle = () => (process.platform !== "darwin" && waitingCount ? `vibeplace (${waitingCount})` : "vibeplace");
 
 function updateBadge() {
   try {
