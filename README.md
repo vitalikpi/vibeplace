@@ -102,12 +102,15 @@ the Windows ConPTY/winpty binaries) outside the asar archive.
 
 On first launch the app asks for a data folder. It remembers the choice in
 `~/Library/Application Support/vibeplace/config.json`, and you can change it later
-with **File → Change Data Folder…**. An empty folder starts a fresh tracker. The
-folder layout:
+with **File → Change Data Folder…**. An empty folder starts a fresh tracker, and the
+app copies `AGENTS.md` (which teaches a coding agent the tracker's flows and walks a new
+user through setup) and a `CLAUDE.md` that imports it (`electron/onboarding/`) into it.
+A folder with anything else in it is left alone. The folder layout:
 
 ```
 <data folder>/
   jobs.db              # SQLite (WAL mode), created on first run
+  AGENTS.md, CLAUDE.md # onboarding for the agent in the terminal pane (fresh folders)
   jobs.backup-v1-*.db  # made once if an old (v1) jobs.db was migrated
   resume.txt           # returned by the get_resume MCP tool
   bookmarklets/        # your own *.js bookmarklets (the app ships only ✅ Unblocked)
