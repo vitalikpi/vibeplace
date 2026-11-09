@@ -71,7 +71,7 @@ describe("src/api.js", () => {
 
   it("fails clearly outside the app, and onChange is a no-op there", async () => {
     globalThis.window = {};
-    await expect(api.getStats()).rejects.toThrow(/not running inside the Job Tracker app/);
+    await expect(api.getStats()).rejects.toThrow(/not running inside the vibeplace app/);
     expect(api.onChange(() => {})()).toBeUndefined();
   });
 

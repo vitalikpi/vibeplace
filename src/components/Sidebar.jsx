@@ -32,7 +32,7 @@ export default function Sidebar({ view, folder, counts, tracks, track, links, on
 
   return (
     <nav aria-label="Folders" className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto py-3 pr-2">
-      <h1 className="mb-2 px-4 text-lg font-bold tracking-tight">Job Tracker</h1>
+      <h1 className="mb-2 px-4 text-lg font-bold tracking-tight">vibeplace</h1>
       <button
         onClick={() => onView("new")}
         aria-current={view === "new" ? "page" : undefined}

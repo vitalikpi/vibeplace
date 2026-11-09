@@ -1,4 +1,4 @@
-// ✅ Unblocked: tell the Job Tracker the agent can carry on in this tab.
+// ✅ Unblocked: tell vibeplace the agent can carry on in this tab.
 // Ships with the app (it's part of the workflow, not tied to any site). The job is
 // found by "#<id>" in the tab title, which agents add when they hand a tab back, else
 // by this page's URL.

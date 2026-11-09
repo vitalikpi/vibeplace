@@ -148,7 +148,7 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 
-# Job Tracker
+# vibeplace
 release/
 *.db
 *.db-wal

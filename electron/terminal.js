@@ -74,7 +74,7 @@ export function shellEnv(base = process.env) {
     if (k.startsWith("ELECTRON_") || k === "TRACKER_USER_DATA" || k === "TRACKER_DATA_ROOT") continue;
     env[k] = v;
   }
-  return { ...env, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "JobTracker" };
+  return { ...env, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "vibeplace" };
 }
 
 const clampSize = (n, dflt) => (Number.isInteger(n) && n > 0 && n < 1000 ? n : dflt);

@@ -16,7 +16,7 @@ export function freshDb() {
 // Empty temporary data folder, set as the app's data root. `files` maps relative
 // paths to contents.
 export function tempDataRoot(files = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jobtracker-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vibeplace-test-"));
   for (const [rel, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), content);
